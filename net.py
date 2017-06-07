@@ -75,9 +75,52 @@ def calculate_activation(x):
     x[x < 0] = 0
     return x
 
+
+def data_loss(s, y, delta):
+    """
+    Calculates the data loss of the scores (how much the scores deviate from the ground truth labels.
+    :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
+    :param y: The ground truth label array of length N.
+    :param delta: A hyperparameter which indicates the minimum difference between a score and the score of the ground truth label.
+    :return: The data loss.
+    """
+    loss = 0
+    # ToDo: Convert iterator to array operation
+    for i in range(len(y)):
+        y_i = y[i]
+        for j in range(len(s[i])):
+            if j != y_i:
+                loss += max(0, s[i][j] - s[i][y_i] + delta)
+    return loss / len(s)
+
+
+def regularization_loss(w, lambda_):
+    """
+    Calculates the regularization loss of the output weights. Regularization loss is used to favor smaller magnitudes of weights.
+    :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer and K is the number of classes.
+    :param lambda_: A hyperparameter used to control the magnitude of the weight.
+    :return: The regularization loss.
+    """
+    return lambda_ * np.sum(np.square(w))
+
+
+def calculate_loss(s, y, w, delta, lambda_):
+    """
+    Calculates the loss of a score matrix depending on the ground truth labels. This method uses multiclass SVM loss.
+    :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
+    :param y: The ground truth label array of length N.
+    :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer.
+    :param delta: The data loss hyperparameter.
+    :param lambda_: The regularization loss hyperparameter.
+    :return: The MSVM loss.
+    """
+    return data_loss(s, y, delta) + regularization_loss(w, lambda_)
+
+
 # hyperparameters
+delta = 1  # Data loss parameter
+lambda_ = 0.01  # The regularization strength (has an influence on regularization loss).
 learning_rate = .01
-regularization_strength = .01
 
 # Input data: 80 % train, 10 % val, 10 % test
 x_data, y_data = get_data()
@@ -92,25 +135,55 @@ x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 input_layer = x_tr[0]
 
 k = len(np.unique(y_data))  # number of classes
-hidden1_shape = [3072, 100]
-hidden2_shape = [100, 100]
+hidden1_shape = [100, 100]
+hidden2_shape = [100, 1]
 hidden_shapes = [hidden1_shape, hidden2_shape]
-out_shape = [hidden2_shape[0], k]
+out_shape = [k, 1]
 
 # weight initialization (specialized for relu activations)
-w_hidden1 = np.random.randn(hidden1_shape[0], hidden1_shape[1]) * sqrt(2 / input_layer.shape[0])
-w_hidden2 = np.random.randn(hidden2_shape[0], hidden2_shape[1]) * sqrt(2 / w_hidden1.shape[1])
-w_out = np.random.randn(out_shape[0], out_shape[1]) * sqrt(2 / w_hidden2.shape[1])
+w_hidden1 = np.random.randn(input_layer.shape[0], hidden1_shape[0]) * sqrt(2 / input_layer.shape[0])
+w_hidden2 = np.random.randn(hidden1_shape[1], hidden2_shape[0]) * sqrt(2 / w_hidden1.shape[1])
+w_out = np.random.randn(hidden2_shape[0], out_shape[0]) * sqrt(2 / w_hidden2.shape[1])
 
+b_hidden1 = np.zeros((1, hidden1_shape[0]))
+b_hidden2 = np.zeros((1, hidden2_shape[0]))
+b_out = np.zeros((1, out_shape[0]))
+
+outs = np.empty((0, 10))
+hiddens_1 = np.empty((0, 100))
+hiddens_2 = np.empty((0, 100))
 # forward pass
-hidden1 = input_layer.dot(w_hidden1)
-hidden1 = calculate_activation(hidden1)
-hidden2 = hidden1.dot(w_hidden2)
-hidden2 = calculate_activation(hidden2)
-out = hidden2.dot(w_out)
+for row in x_tr:
+    print(len(hiddens_1))
+    input_layer = row
+    hidden1 = input_layer.dot(w_hidden1) + b_hidden1
+    hidden1 = calculate_activation(hidden1)
+    hiddens_1 = np.vstack((hiddens_1, hidden1))
+    # ToDo: Apply dropout
+    hidden2 = hidden1.dot(w_hidden2) + b_hidden2
+    hidden2 = calculate_activation(hidden2)
+    hiddens_2 = np.vstack((hiddens_2, hidden2))
+    out = hidden2.dot(w_out) + b_out
+    outs = np.vstack((outs, out))
 
-# ToDo: Loss function
 
-# ToDo: Backpropagation
+# Calculate loss
+#loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
+#print(loss)
+
+
+# ToDo: Backpropagation gradient descent
+
+dscores = outs
+for i in range(len(y_tr)):
+    y_i = y_tr[i]
+    for j in range(len(dscores[i])):
+        if j != y_i:
+            if dscores[i][j] - dscores[i][y_i] + delta < 0:
+                dscores[i][j] = 0
+dhidden2 = dscores.dot(w_out.T)
+dw_out = hiddens_2.T.dot(dscores)
+
+
 
 # ToDo: Set weights (incrementally considering learning rate)
