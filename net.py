@@ -16,7 +16,7 @@ def get_data():
     """
     x_data = None
     y_data = []
-    for nr in range(1, 6):
+    for nr in [1]:#range(1, 6):
         batch = unpickle('data/data_batch_' + str(nr))
         if x_data is None:
             x_data = batch[b'data']
@@ -65,6 +65,8 @@ def preprocess_data(train, validation, test):
     test /= std
     return train, validation, test, mean, std
 
+indices = []
+
 def calculate_activation(x):
     """
     Performs the activation function of a layer.
@@ -72,9 +74,10 @@ def calculate_activation(x):
     :param x
     :return: The resulting matrix representing the activation values of the layer.
     """
+    print(np.where(x < 0)[0])
     x[x < 0] = 0
     return x
-
+from time import time
 
 def data_loss(s, y, delta):
     """
@@ -86,6 +89,7 @@ def data_loss(s, y, delta):
     """
     loss = 0
     # ToDo: Convert iterator to array operation
+    #x = np.sum(np.maximum(0, s - s[y] + delta))
     for i in range(len(y)):
         y_i = y[i]
         for j in range(len(s[i])):
@@ -117,10 +121,30 @@ def calculate_loss(s, y, w, delta, lambda_):
     return data_loss(s, y, delta) + regularization_loss(w, lambda_)
 
 
+def loss_gradient_by_scores(s, y, delta):
+    """
+    Calculates the gradient of the loss function by the scores.
+    The gradient formula is: ds / dL = 1(0, s_j - s_y_i + delta)
+    :param s: The score parameter of the loss function.
+    :param y: The ground truth label parameter of the loss function.
+    :param delta: The data loss hyperparameter.
+    :return: The gradient as a matrix of the same shape as `s`.
+    """
+    for i in range(len(y)):
+        y_i = y[i]
+        for j in range(len(s[i])):
+            if s[i][j] - s[i][y_i] + delta < 0:
+                s[i][j] = 0
+            else:
+                s[i][j] = 1
+    return s
+
+
 # hyperparameters
 delta = 1  # Data loss parameter
 lambda_ = 0.01  # The regularization strength (has an influence on regularization loss).
-learning_rate = .01
+learning_rate = .0000001  # The step size for each epoch (influences how greedy the network changes its parameters)
+epochs = 100  # The amount of iterations the network should take
 
 # Input data: 80 % train, 10 % val, 10 % test
 x_data, y_data = get_data()
@@ -132,8 +156,6 @@ y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
 x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
 # Neural net: IN (3072 x 1) -> HL (100 x 100) -> HL (100 x 1) -> OUT (10 x 1)
-input_layer = x_tr[0]
-
 k = len(np.unique(y_data))  # number of classes
 hidden1_shape = [100, 100]
 hidden2_shape = [100, 1]
@@ -141,7 +163,7 @@ hidden_shapes = [hidden1_shape, hidden2_shape]
 out_shape = [k, 1]
 
 # weight initialization (specialized for relu activations)
-w_hidden1 = np.random.randn(input_layer.shape[0], hidden1_shape[0]) * sqrt(2 / input_layer.shape[0])
+w_hidden1 = np.random.randn(x_tr[0].shape[0], hidden1_shape[0]) * sqrt(2 / x_tr[0].shape[0])
 w_hidden2 = np.random.randn(hidden1_shape[1], hidden2_shape[0]) * sqrt(2 / w_hidden1.shape[1])
 w_out = np.random.randn(hidden2_shape[0], out_shape[0]) * sqrt(2 / w_hidden2.shape[1])
 
@@ -149,41 +171,50 @@ b_hidden1 = np.zeros((1, hidden1_shape[0]))
 b_hidden2 = np.zeros((1, hidden2_shape[0]))
 b_out = np.zeros((1, out_shape[0]))
 
-outs = np.empty((0, 10))
-hiddens_1 = np.empty((0, 100))
-hiddens_2 = np.empty((0, 100))
-# forward pass
-for row in x_tr:
-    print(len(hiddens_1))
-    input_layer = row
-    hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-    hidden1 = calculate_activation(hidden1)
-    hiddens_1 = np.vstack((hiddens_1, hidden1))
-    # ToDo: Apply dropout
-    hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-    hidden2 = calculate_activation(hidden2)
-    hiddens_2 = np.vstack((hiddens_2, hidden2))
-    out = hidden2.dot(w_out) + b_out
-    outs = np.vstack((outs, out))
+for epoch in range(epochs):
+    outs = np.empty((0, 10))
+    hiddens_1 = np.empty((0, 100))
+    hiddens_2 = np.empty((0, 100))
+    # forward pass
+    for row in x_tr:
+        input_layer = row
+        hidden1 = input_layer.dot(w_hidden1) + b_hidden1
+        hidden1 = calculate_activation(hidden1)
+        hiddens_1 = np.vstack((hiddens_1, hidden1))
+        # ToDo: Apply dropout
+        hidden2 = hidden1.dot(w_hidden2) + b_hidden2
+        hidden2 = calculate_activation(hidden2)
+        hiddens_2 = np.vstack((hiddens_2, hidden2))
+        out = hidden2.dot(w_out) + b_out
+        outs = np.vstack((outs, out))
 
 
-# Calculate loss
-#loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
-#print(loss)
+    # Calculate loss
+    loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
+    print(epoch, loss)
 
+    # Backpropagation
 
-# ToDo: Backpropagation gradient descent
+    dscores = loss_gradient_by_scores(outs, y_tr, delta)
 
-dscores = outs
-for i in range(len(y_tr)):
-    y_i = y_tr[i]
-    for j in range(len(dscores[i])):
-        if j != y_i:
-            if dscores[i][j] - dscores[i][y_i] + delta < 0:
-                dscores[i][j] = 0
-dhidden2 = dscores.dot(w_out.T)
-dw_out = hiddens_2.T.dot(dscores)
+    dw_out = hiddens_2.T.dot(dscores)
+    db_out = np.sum(dscores, axis=0, keepdims=True)
+    dhidden2 = dscores.dot(w_out.T)
+    # ToDo: Activation gradient
 
+    dw_hidden2 = hiddens_1.T.dot(dhidden2)
+    db_hidden2 = np.sum(dhidden2, axis=0, keepdims=True)
+    dhidden1 = dhidden2.dot(w_hidden2.T)
+    # ToDo: Activation gradient
 
+    dw_hidden1 = x_tr.T.dot(dhidden1)
+    db_hidden1 = np.sum(dhidden1, axis=0, keepdims=True)
 
-# ToDo: Set weights (incrementally considering learning rate)
+    # Set weights using gradients of backpropagation
+
+    w_hidden1 += - learning_rate * dw_hidden1
+    w_hidden2 += - learning_rate * dw_hidden2
+    w_out += - learning_rate * dw_out
+    b_hidden1 += - learning_rate * db_hidden1
+    b_hidden2 += - learning_rate * db_hidden2
+    b_out += - learning_rate * db_out
