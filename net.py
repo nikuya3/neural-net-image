@@ -1,6 +1,5 @@
 import numpy as np
-from pickle import load
-from random import sample
+from pickle import dump, load
 from math import sqrt
 
 def unpickle(file):
@@ -16,7 +15,7 @@ def get_data():
     """
     x_data = None
     y_data = []
-    for nr in [1]:#range(1, 6):
+    for nr in range(1, 6):
         batch = unpickle('data/data_batch_' + str(nr))
         if x_data is None:
             x_data = batch[b'data']
@@ -74,10 +73,8 @@ def calculate_activation(x):
     :param x
     :return: The resulting matrix representing the activation values of the layer.
     """
-    print(np.where(x < 0)[0])
     x[x < 0] = 0
     return x
-from time import time
 
 def data_loss(s, y, delta):
     """
@@ -142,8 +139,8 @@ def loss_gradient_by_scores(s, y, delta):
 
 # hyperparameters
 delta = 1  # Data loss parameter
-lambda_ = 0.01  # The regularization strength (has an influence on regularization loss).
-learning_rate = .0000001  # The step size for each epoch (influences how greedy the network changes its parameters)
+lambda_ = .01  # The regularization strength (has an influence on regularization loss).
+learning_rate = .01  # The step size for each epoch (influences how greedy the network changes its parameters)
 epochs = 100  # The amount of iterations the network should take
 
 # Input data: 80 % train, 10 % val, 10 % test
@@ -157,8 +154,8 @@ x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
 # Neural net: IN (3072 x 1) -> HL (100 x 100) -> HL (100 x 1) -> OUT (10 x 1)
 k = len(np.unique(y_data))  # number of classes
-hidden1_shape = [100, 100]
-hidden2_shape = [100, 1]
+hidden1_shape = [10000, 10000]
+hidden2_shape = [10000, 1]
 hidden_shapes = [hidden1_shape, hidden2_shape]
 out_shape = [k, 1]
 
@@ -171,50 +168,60 @@ b_hidden1 = np.zeros((1, hidden1_shape[0]))
 b_hidden2 = np.zeros((1, hidden2_shape[0]))
 b_out = np.zeros((1, out_shape[0]))
 
-for epoch in range(epochs):
-    outs = np.empty((0, 10))
-    hiddens_1 = np.empty((0, 100))
-    hiddens_2 = np.empty((0, 100))
-    # forward pass
-    for row in x_tr:
-        input_layer = row
-        hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-        hidden1 = calculate_activation(hidden1)
-        hiddens_1 = np.vstack((hiddens_1, hidden1))
-        # ToDo: Apply dropout
-        hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-        hidden2 = calculate_activation(hidden2)
-        hiddens_2 = np.vstack((hiddens_2, hidden2))
-        out = hidden2.dot(w_out) + b_out
-        outs = np.vstack((outs, out))
+with open('output', 'w') as output:
+    stdout = output
+    for epoch in range(epochs):
+        outs = np.empty((0, out_shape[0]))
+        hiddens_1 = np.empty((0, hidden1_shape[0]))
+        hiddens_2 = np.empty((0, hidden2_shape[0]))
+        # forward pass
+        for row in x_tr:
+            input_layer = row
+            hidden1 = input_layer.dot(w_hidden1) + b_hidden1
+            hidden1 = calculate_activation(hidden1)
+            hiddens_1 = np.vstack((hiddens_1, hidden1))
+            # ToDo: Apply dropout
+            hidden2 = hidden1.dot(w_hidden2) + b_hidden2
+            hidden2 = calculate_activation(hidden2)
+            hiddens_2 = np.vstack((hiddens_2, hidden2))
+            out = hidden2.dot(w_out) + b_out
+            outs = np.vstack((outs, out))
 
 
-    # Calculate loss
-    loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
-    print(epoch, loss)
+        # Calculate loss
+        loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
+        print(epoch, loss)
 
-    # Backpropagation
+        # Backpropagation
 
-    dscores = loss_gradient_by_scores(outs, y_tr, delta)
+        dscores = loss_gradient_by_scores(outs, y_tr, delta)
 
-    dw_out = hiddens_2.T.dot(dscores)
-    db_out = np.sum(dscores, axis=0, keepdims=True)
-    dhidden2 = dscores.dot(w_out.T)
-    # ToDo: Activation gradient
+        dw_out = hiddens_2.T.dot(dscores)
+        db_out = np.sum(dscores, axis=0, keepdims=True)
+        dhidden2 = dscores.dot(w_out.T)
+        dhidden2[dhidden2 < 0] = 0
 
-    dw_hidden2 = hiddens_1.T.dot(dhidden2)
-    db_hidden2 = np.sum(dhidden2, axis=0, keepdims=True)
-    dhidden1 = dhidden2.dot(w_hidden2.T)
-    # ToDo: Activation gradient
+        dw_hidden2 = hiddens_1.T.dot(dhidden2)
+        db_hidden2 = np.sum(dhidden2, axis=0, keepdims=True)
+        dhidden1 = dhidden2.dot(w_hidden2.T)
+        dhidden1[dhidden1 < 0] = 0
 
-    dw_hidden1 = x_tr.T.dot(dhidden1)
-    db_hidden1 = np.sum(dhidden1, axis=0, keepdims=True)
+        dw_hidden1 = x_tr.T.dot(dhidden1)
+        db_hidden1 = np.sum(dhidden1, axis=0, keepdims=True)
 
-    # Set weights using gradients of backpropagation
+        # Set weights using gradients of backpropagation
 
-    w_hidden1 += - learning_rate * dw_hidden1
-    w_hidden2 += - learning_rate * dw_hidden2
-    w_out += - learning_rate * dw_out
-    b_hidden1 += - learning_rate * db_hidden1
-    b_hidden2 += - learning_rate * db_hidden2
-    b_out += - learning_rate * db_out
+        w_hidden1 += - learning_rate * dw_hidden1
+        w_hidden2 += - learning_rate * dw_hidden2
+        w_out += - learning_rate * dw_out
+        b_hidden1 += - learning_rate * db_hidden1
+        b_hidden2 += - learning_rate * db_hidden2
+        b_out += - learning_rate * db_out
+
+with open('dump.p', 'wb') as dump_file:
+    dump(w_hidden1, dump_file)
+    dump(w_hidden2, dump_file)
+    dump(w_out, dump_file)
+    dump(b_hidden1, dump_file)
+    dump(b_hidden2, dump_file)
+    dump(b_out, dump_file)
