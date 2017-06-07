@@ -168,55 +168,53 @@ b_hidden1 = np.zeros((1, hidden1_shape[0]))
 b_hidden2 = np.zeros((1, hidden2_shape[0]))
 b_out = np.zeros((1, out_shape[0]))
 
-with open('output', 'w') as output:
-    stdout = output
-    for epoch in range(epochs):
-        outs = np.empty((0, out_shape[0]))
-        hiddens_1 = np.empty((0, hidden1_shape[0]))
-        hiddens_2 = np.empty((0, hidden2_shape[0]))
-        # forward pass
-        for row in x_tr:
-            input_layer = row
-            hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-            hidden1 = calculate_activation(hidden1)
-            hiddens_1 = np.vstack((hiddens_1, hidden1))
-            # ToDo: Apply dropout
-            hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-            hidden2 = calculate_activation(hidden2)
-            hiddens_2 = np.vstack((hiddens_2, hidden2))
-            out = hidden2.dot(w_out) + b_out
-            outs = np.vstack((outs, out))
+for epoch in range(epochs):
+    outs = np.empty((0, out_shape[0]))
+    hiddens_1 = np.empty((0, hidden1_shape[0]))
+    hiddens_2 = np.empty((0, hidden2_shape[0]))
+    # forward pass
+    for row in x_tr:
+        input_layer = row
+        hidden1 = input_layer.dot(w_hidden1) + b_hidden1
+        hidden1 = calculate_activation(hidden1)
+        hiddens_1 = np.vstack((hiddens_1, hidden1))
+        # ToDo: Apply dropout
+        hidden2 = hidden1.dot(w_hidden2) + b_hidden2
+        hidden2 = calculate_activation(hidden2)
+        hiddens_2 = np.vstack((hiddens_2, hidden2))
+        out = hidden2.dot(w_out) + b_out
+        outs = np.vstack((outs, out))
 
 
-        # Calculate loss
-        loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
-        print(epoch, loss)
+    # Calculate loss
+    loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
+    print(epoch, loss)
 
-        # Backpropagation
+    # Backpropagation
 
-        dscores = loss_gradient_by_scores(outs, y_tr, delta)
+    dscores = loss_gradient_by_scores(outs, y_tr, delta)
 
-        dw_out = hiddens_2.T.dot(dscores)
-        db_out = np.sum(dscores, axis=0, keepdims=True)
-        dhidden2 = dscores.dot(w_out.T)
-        dhidden2[dhidden2 < 0] = 0
+    dw_out = hiddens_2.T.dot(dscores)
+    db_out = np.sum(dscores, axis=0, keepdims=True)
+    dhidden2 = dscores.dot(w_out.T)
+    dhidden2[dhidden2 < 0] = 0
 
-        dw_hidden2 = hiddens_1.T.dot(dhidden2)
-        db_hidden2 = np.sum(dhidden2, axis=0, keepdims=True)
-        dhidden1 = dhidden2.dot(w_hidden2.T)
-        dhidden1[dhidden1 < 0] = 0
+    dw_hidden2 = hiddens_1.T.dot(dhidden2)
+    db_hidden2 = np.sum(dhidden2, axis=0, keepdims=True)
+    dhidden1 = dhidden2.dot(w_hidden2.T)
+    dhidden1[dhidden1 < 0] = 0
 
-        dw_hidden1 = x_tr.T.dot(dhidden1)
-        db_hidden1 = np.sum(dhidden1, axis=0, keepdims=True)
+    dw_hidden1 = x_tr.T.dot(dhidden1)
+    db_hidden1 = np.sum(dhidden1, axis=0, keepdims=True)
 
-        # Set weights using gradients of backpropagation
+    # Set weights using gradients of backpropagation
 
-        w_hidden1 += - learning_rate * dw_hidden1
-        w_hidden2 += - learning_rate * dw_hidden2
-        w_out += - learning_rate * dw_out
-        b_hidden1 += - learning_rate * db_hidden1
-        b_hidden2 += - learning_rate * db_hidden2
-        b_out += - learning_rate * db_out
+    w_hidden1 += - learning_rate * dw_hidden1
+    w_hidden2 += - learning_rate * dw_hidden2
+    w_out += - learning_rate * dw_out
+    b_hidden1 += - learning_rate * db_hidden1
+    b_hidden2 += - learning_rate * db_hidden2
+    b_out += - learning_rate * db_out
 
 with open('dump.p', 'wb') as dump_file:
     dump(w_hidden1, dump_file)
