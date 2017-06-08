@@ -2,6 +2,7 @@ import numpy as np
 from pickle import dump, load
 from math import sqrt
 
+
 def unpickle(file):
     with open(file, 'rb') as fo:
         data = load(fo, encoding='bytes')
@@ -23,7 +24,8 @@ def get_data():
         else:
             x_data = np.concatenate((x_data, batch[b'data']), axis=0)
             y_data += batch[b'labels']
-    return x_data, y_data
+    return x_data[:1000], y_data[:1000]
+
 
 def split_data(data, train, val, test):
     """
@@ -40,6 +42,7 @@ def split_data(data, train, val, test):
     test_end = int(len(training_set) + len(val_set) + len(data) * test)
     test_set = data[val_end:test_end]
     return training_set, val_set, test_set
+
 
 def preprocess_data(train, validation, test):
     """
@@ -66,6 +69,7 @@ def preprocess_data(train, validation, test):
 
 indices = []
 
+
 def calculate_activation(x):
     """
     Performs the activation function of a layer.
@@ -75,6 +79,7 @@ def calculate_activation(x):
     """
     x[x < 0] = 0
     return x
+
 
 def data_loss(s, y, delta):
     """
@@ -140,7 +145,7 @@ def loss_gradient_by_scores(s, y, delta):
 # hyperparameters
 delta = 1  # Data loss parameter
 lambda_ = .01  # The regularization strength (has an influence on regularization loss).
-learning_rate = .01  # The step size for each epoch (influences how greedy the network changes its parameters)
+learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
 epochs = 100  # The amount of iterations the network should take
 
 # Input data: 80 % train, 10 % val, 10 % test
@@ -154,8 +159,8 @@ x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
 # Neural net: IN (3072 x 1) -> HL (100 x 100) -> HL (100 x 1) -> OUT (10 x 1)
 k = len(np.unique(y_data))  # number of classes
-hidden1_shape = [10000, 10000]
-hidden2_shape = [10000, 1]
+hidden1_shape = [50000, 50000]
+hidden2_shape = [100, 1]
 hidden_shapes = [hidden1_shape, hidden2_shape]
 out_shape = [k, 1]
 
