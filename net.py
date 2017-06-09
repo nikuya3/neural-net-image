@@ -70,14 +70,15 @@ def preprocess_data(train, validation, test):
 indices = []
 
 
-def calculate_activation(x):
+def calculate_activation(x, alpha):
     """
     Performs the activation function of a layer.
-    This neural net uses ReLU, which simply returns the input (and caps it at zero).
+    This neural net uses leaky ReLU, which simply returns the input (and caps it at zero).
     :param x
     :return: The resulting matrix representing the activation values of the layer.
     """
-    x[x < 0] = 0
+    for i in np.where(x < 0)[1]:
+        x[0][i] = alpha * x[0][i]
     return x
 
 
@@ -142,11 +143,33 @@ def loss_gradient_by_scores(s, y, delta):
     return s
 
 
+def update_parameter(x, dx, epoch, m, v, learning_rate):
+    """
+    Updates the parameter x using its gradient dx.
+    :param x: The parameter to be updated.
+    :param dx: The gradient of the parameter to be updated.
+    :param epoch: The current training epoch.
+    :param m: The current momentum.
+    :param v: The current velocity.
+    :param learning_rate: The learning rate of the network.
+    :return:
+    """
+    m = beta1 * m + (1 - beta1) * dx
+    mt = m / (1 - beta1 ** epoch)
+    v = beta2 * v + (1 - beta2) * (dx ** 2)
+    vt = v / (1 - beta2 ** epoch)
+    x += - learning_rate * mt / (np.sqrt(vt) + eps)
+
+
 # hyperparameters
 delta = 1  # Data loss parameter
-lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-learning_rate = .01  # The step size for each epoch (influences how greedy the network changes its parameters)
-epochs = 100  # The amount of iterations the network should take
+lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
+learning_rate = .1  # The step size for each epoch (influences how greedy the network changes its parameters)
+epochs = 1000  # The amount of iterations the network should take
+alpha = 0.1  # Slope for leaky ReLU
+beta1 = .9  # Hyperparameter for Adam parameter update
+beta2 = .999  # Hyperparameter for Adam parameter update
+eps = 1e-8  # Hyperparameter for Adam parameter update
 
 # Input data: 80 % train, 10 % val, 10 % test
 x_data, y_data = get_data()
@@ -158,11 +181,31 @@ y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
 x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
 # Neural net: IN (3072 x 1) -> HL (100 x 100) -> HL (100 x 1) -> OUT (10 x 1)
-k = len(np.unique(y_data))  # number of classes
+k = len(np.unique(y_tr))  # number of classes
 hidden1_shape = [1000, 1000]
 hidden2_shape = [100, 1]
 hidden_shapes = [hidden1_shape, hidden2_shape]
 out_shape = [k, 1]
+
+# Quick accuracy measure
+# cc = 0
+# with open('dump_t.p', 'rb') as file:
+#     wh1 = load(file)
+#     wh2 = load(file)
+#     wo = load(file)
+#     bh1 = load(file)
+#     bh2 = load(file)
+#     bo = load(file)
+#     for i in range(len(x_te)):
+#         input_layer = x_te[i]
+#         hidden1 = input_layer.dot(wh1) + bh1
+#         hidden1 = calculate_activation(hidden1, alpha)
+#         hidden2 = hidden1.dot(wh2) + bh2
+#         hidden2 = calculate_activation(hidden2, alpha)
+#         out = hidden2.dot(wo) + bo
+#         if np.argmax(out) == y_te[i]:
+#             cc += 1
+# print(cc / len(x_te))
 
 # weight initialization (specialized for relu activations)
 w_hidden1 = np.random.randn(x_tr[0].shape[0], hidden1_shape[0]) * sqrt(2 / x_tr[0].shape[0])
@@ -173,7 +216,10 @@ b_hidden1 = np.zeros((1, hidden1_shape[0]))
 b_hidden2 = np.zeros((1, hidden2_shape[0]))
 b_out = np.zeros((1, out_shape[0]))
 
-for epoch in range(epochs):
+m = 0.0
+v = 0.0
+
+for epoch in range(1, epochs):
     outs = []
     hiddens_1 = []
     hiddens_2 = []
@@ -181,15 +227,14 @@ for epoch in range(epochs):
     for row in x_tr:
         input_layer = row
         hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-        hidden1 = calculate_activation(hidden1)
+        hidden1 = calculate_activation(hidden1, alpha)
         hiddens_1.append(hidden1)
         # ToDo: Apply dropout
         hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-        hidden2 = calculate_activation(hidden2)
+        hidden2 = calculate_activation(hidden2, alpha)
         hiddens_2.append(hidden2)
         out = hidden2.dot(w_out) + b_out
         outs.append(out)
-
 
     # Calculate loss
     loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
@@ -207,32 +252,27 @@ for epoch in range(epochs):
 
     for i in range(len(hiddens_1)):
         ds = dscores[i]
-        dw_out += hiddens_2[i].T.dot(ds)
-        db_out += np.sum(ds, axis=0, keepdims=True)
+        dw_out *= hiddens_2[i].T.dot(ds)
+        db_out *= np.sum(ds, axis=0, keepdims=True)
         dhidden2 = ds.dot(w_out.T)
-        dhidden2[hiddens_2[i] < 0] = 0
+        dhidden2[hiddens_2[i] < 0] = alpha
 
-        dw_hidden2 += hiddens_1[i].T.dot(dhidden2)
-        db_hidden2 += np.sum(dhidden2, axis=0, keepdims=True)
+        dw_hidden2 *= hiddens_1[i].T.dot(dhidden2)
+        db_hidden2 *= np.sum(dhidden2, axis=0, keepdims=True)
         dhidden1 = dhidden2.dot(w_hidden2.T)
-        dhidden1[hiddens_1[i] < 0] = 0
+        dhidden1[hiddens_1[i] < 0] = alpha
 
-        dw_hidden1 += x_tr[i].reshape(1, 3072).T.dot(dhidden1)
-        db_hidden1 += np.sum(dhidden1, axis=0, keepdims=True)
+        dw_hidden1 *= x_tr[i].reshape(1, 3072).T.dot(dhidden1)
+        db_hidden1 *= np.sum(dhidden1, axis=0, keepdims=True)
 
     # Set weights using gradients of backpropagation
 
-    w_hidden1 += - learning_rate * dw_hidden1 / len(hiddens_1)
-    w_hidden2 += - learning_rate * dw_hidden2 / len(hiddens_1)
-    w_out += - learning_rate * dw_out / len(hiddens_1)
-    b_hidden1 += - learning_rate * db_hidden1 / len(hiddens_1)
-    b_hidden2 += - learning_rate * db_hidden2 / len(hiddens_1)
-    b_out += - learning_rate * db_out / len(hiddens_1)
+    update_parameter(w_hidden1, dw_hidden1, epoch, m, v, learning_rate)
+    update_parameter(w_hidden2, dw_hidden2, epoch, m, v, learning_rate)
+    update_parameter(w_out, dw_out, epoch, m, v, learning_rate)
+    update_parameter(b_hidden1, db_hidden1, epoch, m, v, learning_rate)
+    update_parameter(b_hidden2, db_hidden2, epoch, m, v, learning_rate)
+    update_parameter(b_out, db_out, epoch, m, v, learning_rate)
 
 with open('dump.p', 'wb') as dump_file:
-    dump(w_hidden1, dump_file)
-    dump(w_hidden2, dump_file)
-    dump(w_out, dump_file)
-    dump(b_hidden1, dump_file)
-    dump(b_hidden2, dump_file)
-    dump(b_out, dump_file)
+    dump((w_hidden1, w_hidden2, w_out, b_hidden1, b_hidden2, b_out), dump_file)
