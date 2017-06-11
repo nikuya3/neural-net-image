@@ -84,7 +84,7 @@ def calculate_activation(x, alpha):
 
 def data_loss(s, y, delta):
     """
-    Calculates the data loss of the scores (how much the scores deviate from the ground truth labels.
+    Calculates the data loss of the scores (how much the scores deviate from the ground truth labels).
     :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
     :param y: The ground truth label array of length N.
     :param delta: A hyperparameter which indicates the minimum difference between a score and the score of the ground truth label.
@@ -108,26 +108,39 @@ def regularization_loss(w, lambda_):
     :param lambda_: A hyperparameter used to control the magnitude of the weight.
     :return: The regularization loss.
     """
-    return lambda_ * np.sum(np.square(w))
+    return .5 * lambda_ * np.sum(np.square(w))
 
 
 def calculate_loss(s, y, w, delta, lambda_):
     """
-    Calculates the loss of a score matrix depending on the ground truth labels. This method uses multiclass SVM loss.
+    Calculates the loss of a score matrix depending on the ground truth labels. This method uses hinge loss (from MSVM).
     :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
     :param y: The ground truth label array of length N.
     :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer.
     :param delta: The data loss hyperparameter.
     :param lambda_: The regularization loss hyperparameter.
-    :return: The MSVM loss.
+    :return: The hinge loss.
     """
     return data_loss(s, y, delta) + regularization_loss(w, lambda_)
+
+def probs(scores):
+    exp_scores = np.exp(scores)
+    return exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
+from math import log
+def calculate_cross_entropy_loss(s, y, w, lambda_):
+    exp_scores = np.exp(s)
+    p = 0
+    for i in range(len(y)):
+        sum_scores = np.sum(exp_scores[i][0])
+        p += - log(exp_scores[i][0][y[i]] / sum_scores)
+    data_loss = p / len(y)
+    return data_loss + regularization_loss(w, lambda_)
 
 
 def loss_gradient_by_scores(s, y, delta):
     """
     Calculates the gradient of the loss function by the scores.
-    The gradient formula is: ds / dL = 1(0, s_j - s_y_i + delta)
+    The gradient formula is: ds / dL = 1(s_j - s_y_i + delta > 0)
     :param s: The score parameter of the loss function.
     :param y: The ground truth label parameter of the loss function.
     :param delta: The data loss hyperparameter.
@@ -136,12 +149,26 @@ def loss_gradient_by_scores(s, y, delta):
     for i in range(len(y)):
         y_i = y[i]
         for j in range(len(s[i][0])):
-            if s[i][0][j] - s[i][0][y_i] + delta < 0:
+            if j == y_i:
+                class_score = s[i][0][j]
+                count = s[i][0][s[i][0] - class_score + delta > 0].size
+                s[i][0][j] = count
+            elif s[i][0][j] - s[i][0][y_i] + delta < 0:
                 s[i][0][j] = 0
             else:
                 s[i][0][j] = 1
     return s
 
+def cross_entropy_loss_gradient(s, y):
+    exp_scores = np.exp(s)
+    for i in range(len(y)):
+        for j in range(len(exp_scores[i][0])):
+            sum_scores = np.sum(exp_scores[i][0])
+            exp_scores[i][0][j] = exp_scores[i][0][j] / sum_scores
+            if j == y[i]:
+                exp_scores[i][0][j] -= 1
+    ds = exp_scores / len(y)
+    return ds
 
 def update_parameter(x, dx, epoch, m, v, learning_rate):
     """
@@ -156,17 +183,19 @@ def update_parameter(x, dx, epoch, m, v, learning_rate):
     """
     m = beta1 * m + (1 - beta1) * dx
     mt = m / (1 - beta1 ** epoch)
-    v = beta2 * v + (1 - beta2) * (dx ** 2)
+    v = beta2 * v + (1 - beta2) * (np.square(dx))
     vt = v / (1 - beta2 ** epoch)
-    x += - learning_rate * mt / (np.sqrt(vt) + eps)
+    update = - learning_rate * mt / (np.sqrt(vt) + eps)
+    #print(np.mean(update / x))
+    x += update
 
 
 # hyperparameters
 delta = 1  # Data loss parameter
-lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
+lambda_ = 0  # The regularization strength (has an influence on regularization loss).
 learning_rate = .1  # The step size for each epoch (influences how greedy the network changes its parameters)
 epochs = 1000  # The amount of iterations the network should take
-alpha = 0.1  # Slope for leaky ReLU
+alpha = .0  # Slope for leaky ReLU
 beta1 = .9  # Hyperparameter for Adam parameter update
 beta2 = .999  # Hyperparameter for Adam parameter update
 eps = 1e-8  # Hyperparameter for Adam parameter update
@@ -180,99 +209,131 @@ y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
 # Preprocess data
 x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
-# Neural net: IN (3072 x 1) -> HL (100 x 100) -> HL (100 x 1) -> OUT (10 x 1)
+# Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (100 x 1) -> OUT (10 x 1)
 k = len(np.unique(y_tr))  # number of classes
-hidden1_shape = [1000, 1000]
-hidden2_shape = [100, 1]
-hidden_shapes = [hidden1_shape, hidden2_shape]
-out_shape = [k, 1]
+hidden_sizes = [1000, 500, 25]
+out_size = k
 
 # Quick accuracy measure
 # cc = 0
-# with open('dump_t.p', 'rb') as file:
-#     wh1 = load(file)
-#     wh2 = load(file)
-#     wo = load(file)
-#     bh1 = load(file)
-#     bh2 = load(file)
-#     bo = load(file)
+# with open('dump.p', 'rb') as file:
+#     wh, wo, bh, bo = load(file)
 #     for i in range(len(x_te)):
 #         input_layer = x_te[i]
-#         hidden1 = input_layer.dot(wh1) + bh1
-#         hidden1 = calculate_activation(hidden1, alpha)
-#         hidden2 = hidden1.dot(wh2) + bh2
-#         hidden2 = calculate_activation(hidden2, alpha)
-#         out = hidden2.dot(wo) + bo
+#         hiddens = []
+#         for h in range(len(wh)):
+#             if h == 0:
+#                 hidden = input_layer.dot(wh[h]) + bh[h]
+#             else:
+#                 hidden = hiddens[h - 1].dot(wh[h]) + bh[h]
+#             hidden = calculate_activation(hidden, alpha)
+#             hiddens.append(hidden)
+#         out = hiddens[-1].dot(wo) + bo
 #         if np.argmax(out) == y_te[i]:
 #             cc += 1
 # print(cc / len(x_te))
 
 # weight initialization (specialized for relu activations)
-w_hidden1 = np.random.randn(x_tr[0].shape[0], hidden1_shape[0]) * sqrt(2 / x_tr[0].shape[0])
-w_hidden2 = np.random.randn(hidden1_shape[1], hidden2_shape[0]) * sqrt(2 / x_tr[0].shape[0])
-w_out = np.random.randn(hidden2_shape[0], out_shape[0]) * sqrt(2 / x_tr[0].shape[0])
-
-b_hidden1 = np.zeros((1, hidden1_shape[0]))
-b_hidden2 = np.zeros((1, hidden2_shape[0]))
-b_out = np.zeros((1, out_shape[0]))
-
-m = 0.0
-v = 0.0
+wh = []
+bh = []
+for i in range(len(hidden_sizes)):
+    if i == 0:
+        wh.append(np.random.randn(x_tr[0].shape[0], hidden_sizes[i]) * sqrt(2 / x_tr[0].shape[0]))
+    else:
+        wh.append(np.random.randn(hidden_sizes[i - 1], hidden_sizes[i]) * sqrt(2 / x_tr[0].shape[0]))
+    bh.append(np.zeros((1, hidden_sizes[i])))
+w_out = np.random.randn(hidden_sizes[-1], out_size) * sqrt(2 / x_tr[0].shape[0])
+b_out = np.zeros((1, out_size))
+m = .0
+v = .0
 
 for epoch in range(1, epochs):
     outs = []
-    hiddens_1 = []
-    hiddens_2 = []
+    hidden_layers = [[] for h in hidden_sizes]
+    deads = 0
+    total = 0
+    out_deads = 0
     # forward pass
-    for row in x_tr:
-        input_layer = row
-        hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-        hidden1 = calculate_activation(hidden1, alpha)
-        hiddens_1.append(hidden1)
-        # ToDo: Apply dropout
-        hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-        hidden2 = calculate_activation(hidden2, alpha)
-        hiddens_2.append(hidden2)
-        out = hidden2.dot(w_out) + b_out
+    for input_nr in range(len(x_tr)):
+        input_layer = x_tr[input_nr]
+        # for h in range(len(hidden_sizes)):
+        #     if h == 0:
+        #         hidden = np.dot(wh[h], input_layer) + bh[h]
+        #         hidden = calculate_activation(hidden, alpha)
+        #         hidden_layers[h].append(hidden)
+        #     else:
+        #         hidden = wh[h].dot(hidden_layers[h - 1][input_nr]) + bh[h]
+        #         hidden = calculate_activation(hidden, alpha)
+        #         hidden_layers[h].append(hidden)
+        for h in range(len(hidden_sizes)):
+            if h == 0:
+                hidden = input_layer.dot(wh[h]) + bh[h]
+                hidden = calculate_activation(hidden, alpha)
+                hidden_layers[h].append(hidden)
+            else:
+                hidden = hidden_layers[h - 1][input_nr].dot(wh[h]) + bh[h]
+                hidden = calculate_activation(hidden, alpha)
+                hidden_layers[h].append(hidden)
+
+        # hidden1 = input_layer.dot(w_hidden1) + b_hidden1
+        # hidden1 = calculate_activation(hidden1, alpha)
+        # deads += hidden1[hidden1 == 0].size
+        # total += hidden1.size
+        # hiddens_1.append(hidden1)
+        # # ToDo: Apply dropout
+        # hidden2 = hidden1.dot(w_hidden2) + b_hidden2
+        # hidden2 = calculate_activation(hidden2, alpha)
+        # deads += hidden2[hidden2 == 0].size
+        # total += hidden2.size
+        # hiddens_2.append(hidden2)
+        out = hidden_layers[-1][input_nr].dot(w_out) + b_out
+        out_deads += out[out == 0].size
         outs.append(out)
 
     # Calculate loss
     loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
-    print(epoch, loss)
+    print(epoch, loss, deads, total, out_deads)
 
     # Backpropagation
 
     dscores = loss_gradient_by_scores(outs, y_tr, delta)
-    dw_out = np.empty(w_out.shape)
+    dwh = [np.full(w_i.shape, 1.0) for w_i in wh]
+    dbh = [np.empty(b_i.shape) for b_i in bh]
+    dw_out = np.full(w_out.shape, 1.0)
     db_out = np.empty(b_out.shape)
-    dw_hidden1 = np.empty(w_hidden1.shape)
-    db_hidden1 = np.empty(b_hidden1.shape)
-    dw_hidden2 = np.empty(w_hidden2.shape)
-    db_hidden2 = np.empty(b_hidden2.shape)
 
-    for i in range(len(hiddens_1)):
+    dws = [[] for w_i in wh]
+    dos = []
+
+    for i in range(len(hidden_layers[0])):
         ds = dscores[i]
-        dw_out *= hiddens_2[i].T.dot(ds)
-        db_out *= np.sum(ds, axis=0, keepdims=True)
-        dhidden2 = ds.dot(w_out.T)
-        dhidden2[hiddens_2[i] < 0] = alpha
+        #dw_out *= hidden_layers[-1][i].T.dot(ds)
+        dos.append(hidden_layers[-1][i].T.dot(ds))
+        db_out += np.sum(ds, axis=0, keepdims=True)
+        dhiddens = {}
+        for h in range(len(hidden_layers) - 1, -1, -1):
+            if h == len(hidden_layers) - 1:
+                dhidden = ds.dot(w_out.T)
+            else:
+                dhidden = dhiddens[h + 1].dot(wh[h + 1].T)
+            dhidden[hidden_layers[h][i] < 0] = alpha
+            dhiddens[h] = dhidden
+            if h == 0:
+                #dwh[h] *= x_tr[i].reshape(1, 3072).T.dot(dhidden)
+                dws[h].append(x_tr[i].reshape(1, 3072).T.dot(dhidden))
+            else:
+                #dwh[h] *= hidden_layers[h - 1][i].T.dot(dhidden)
+                dws[h].append(hidden_layers[h - 1][i].T.dot(dhidden))
+            dbh[h] += np.sum(dhidden, axis=0, keepdims=True)
 
-        dw_hidden2 *= hiddens_1[i].T.dot(dhidden2)
-        db_hidden2 *= np.sum(dhidden2, axis=0, keepdims=True)
-        dhidden1 = dhidden2.dot(w_hidden2.T)
-        dhidden1[hiddens_1[i] < 0] = alpha
-
-        dw_hidden1 *= x_tr[i].reshape(1, 3072).T.dot(dhidden1)
-        db_hidden1 *= np.sum(dhidden1, axis=0, keepdims=True)
+    dw_out += lambda_ * w_out
 
     # Set weights using gradients of backpropagation
-
-    update_parameter(w_hidden1, dw_hidden1, epoch, m, v, learning_rate)
-    update_parameter(w_hidden2, dw_hidden2, epoch, m, v, learning_rate)
-    update_parameter(w_out, dw_out, epoch, m, v, learning_rate)
-    update_parameter(b_hidden1, db_hidden1, epoch, m, v, learning_rate)
-    update_parameter(b_hidden2, db_hidden2, epoch, m, v, learning_rate)
+    for h in range(len(hidden_layers)):
+        update_parameter(wh[h], np.max(dws[h], axis=0), epoch, m, v, learning_rate)
+        update_parameter(bh[h], dbh[h], epoch, m, v, learning_rate)
+    update_parameter(w_out, np.max(dos, axis=0), epoch, m, v, learning_rate)
     update_parameter(b_out, db_out, epoch, m, v, learning_rate)
 
 with open('dump.p', 'wb') as dump_file:
-    dump((w_hidden1, w_hidden2, w_out, b_hidden1, b_hidden2, b_out), dump_file)
+    dump((wh, w_out, bh, b_out), dump_file)
