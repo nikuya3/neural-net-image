@@ -1,6 +1,6 @@
 import numpy as np
 from pickle import dump, load
-from math import sqrt
+from math import log, sqrt
 
 
 def unpickle(file):
@@ -24,7 +24,7 @@ def get_data():
         else:
             x_data = np.concatenate((x_data, batch[b'data']), axis=0)
             y_data += batch[b'labels']
-    return x_data[80:120], y_data[80:120]
+    return x_data, y_data
 
 
 def split_data(data, train, val, test):
@@ -67,14 +67,16 @@ def preprocess_data(train, validation, test):
     test /= std
     return train, validation, test, mean, std
 
-indices = []
-
 
 def calculate_activation(x, alpha):
     """
     Performs the activation function of a layer.
-    This neural net uses leaky ReLU, which simply returns the input (and caps it at zero).
-    :param x
+    This neural net uses leaky ReLU. This activation returns the input if the input is positive.
+    If the input is negative, it returns the input multiplied by alpha.
+    In usual leaky ReLU environments, alpha should by a small number, so that the output is nearly 0.
+    For a normal ReLU behaviour, simply pass alpha as 0.
+    :param x: The input matrix to the activation.
+    :param alpha: The factor by which negative inputs ar scaled.
     :return: The resulting matrix representing the activation values of the layer.
     """
     for i in np.where(x < 0)[1]:
@@ -82,12 +84,13 @@ def calculate_activation(x, alpha):
     return x
 
 
-def data_loss(s, y, delta):
+def data_hinge_loss(s, y, delta):
     """
     Calculates the data loss of the scores (how much the scores deviate from the ground truth labels).
     :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
     :param y: The ground truth label array of length N.
-    :param delta: A hyperparameter which indicates the minimum difference between a score and the score of the ground truth label.
+    :param delta: A hyperparameter which indicates the minimum margin between a score and the score of the ground truth
+    label.
     :return: The data loss.
     """
     loss = 0
@@ -103,31 +106,45 @@ def data_loss(s, y, delta):
 
 def regularization_loss(w, lambda_):
     """
-    Calculates the regularization loss of the output weights. Regularization loss is used to favor smaller magnitudes of weights.
-    :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer and K is the number of classes.
+    Calculates the regularization loss of the output weights.
+    Regularization loss is used to favor smaller magnitudes of weights.
+    :param w: The weight matrix of the output layer of form (H x K),
+    where H is the size of the previous layer and K is the number of classes.
     :param lambda_: A hyperparameter used to control the magnitude of the weight.
     :return: The regularization loss.
     """
     return .5 * lambda_ * np.sum(np.square(w))
 
 
-def calculate_loss(s, y, w, delta, lambda_):
+def calculate_hinge_loss(s, y, w, delta, lambda_):
     """
     Calculates the loss of a score matrix depending on the ground truth labels. This method uses hinge loss (from MSVM).
     :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
-    :param y: The ground truth label array of length N.
+    :param y: The ground truth label vector of length N.
     :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer.
     :param delta: The data loss hyperparameter.
     :param lambda_: The regularization loss hyperparameter.
     :return: The hinge loss.
     """
-    return data_loss(s, y, delta) + regularization_loss(w, lambda_)
+    return data_hinge_loss(s, y, delta) + regularization_loss(w, lambda_)
+
 
 def probs(scores):
     exp_scores = np.exp(scores)
     return exp_scores / np.sum(exp_scores, axis=1, keepdims=True)
-from math import log
+
+
 def calculate_cross_entropy_loss(s, y, w, lambda_):
+    """
+    Calculates the loss of a score matrix depending on the ground truth labels.
+    This method uses cross entropy loss (from Softmax).
+    :param s: The score matrix of form (N x K), where N is the number of images and K is the number of classes.
+    :param y: The ground truth label vector of length N.
+    :param w: The weight matrix of the output layer of form (H x K), where H is the size of the previous layer.
+    :param lambda_: The regularization loss hyperparameter.
+    :return: The cross-entropy loss, where 0 indicates a perfect match between s and y
+    and +Inf indicates a perfect mismatch.
+    """
     exp_scores = np.exp(s)
     p = 0
     for i in range(len(y)):
@@ -137,10 +154,10 @@ def calculate_cross_entropy_loss(s, y, w, lambda_):
     return data_loss + regularization_loss(w, lambda_)
 
 
-def loss_gradient_by_scores(s, y, delta):
+def hinge_loss_gradient_by_scores(s, y, delta):
     """
-    Calculates the gradient of the loss function by the scores.
-    The gradient formula is: ds / dL = 1(s_j - s_y_i + delta > 0)
+    Calculates the gradient of the hinge loss function by the scores.
+    The gradient formula is: { ds_j / dL = 1(s_j - s_y_i + delta > 0), ds_y_i / dL = sum (1(s_j - s_y_i + delta > 0) }
     :param s: The score parameter of the loss function.
     :param y: The ground truth label parameter of the loss function.
     :param delta: The data loss hyperparameter.
@@ -159,7 +176,15 @@ def loss_gradient_by_scores(s, y, delta):
                 s[i][0][j] = 1
     return s
 
+
 def cross_entropy_loss_gradient(s, y):
+    """
+    Calculates the gradient of the hinge loss function by the scores.
+    The gradient formula is { ds_j / dL = e^s_j / sum e^j, ds_y_i / dL = e^s_y_i / sum e^j - 1 }.
+    :param s: The score parameter of the loss function.
+    :param y: The ground truth label parameter of the loss function.
+    :return: The gradient as a matrix of the same shape as `s`.
+    """
     exp_scores = np.exp(s)
     for i in range(len(y)):
         for j in range(len(exp_scores[i][0])):
@@ -170,6 +195,7 @@ def cross_entropy_loss_gradient(s, y):
     ds = exp_scores / len(y)
     return ds
 
+
 def update_parameter(x, dx, epoch, m, v, learning_rate):
     """
     Updates the parameter x using its gradient dx.
@@ -178,8 +204,8 @@ def update_parameter(x, dx, epoch, m, v, learning_rate):
     :param epoch: The current training epoch.
     :param m: The current momentum.
     :param v: The current velocity.
-    :param learning_rate: The learning rate of the network.
-    :return:
+    :param learning_rate: The learning rate of the network. Indicates the size of learning steps.
+    :return: The updated parameter of the same type as x.
     """
     m = beta1 * m + (1 - beta1) * dx
     mt = m / (1 - beta1 ** epoch)
@@ -190,11 +216,39 @@ def update_parameter(x, dx, epoch, m, v, learning_rate):
     x += update
 
 
+def accuracy(x, y, wh, wo, bh, bo):
+    """
+    Measures the accuracy of a nerual network. Specifically the proportion of correct predictions of input data x
+    using the parameters wh, wo, bh, bo and the ground truth labels y.
+    :param x: The input data to be predicted.
+    :param y: The ground truth labels for the input data.
+    :param wh: The weights of each hidden layer as an array.
+    :param wo: The weights of the output layer.
+    :param bh: The biases of each hidden layer as an array.
+    :param bo: The biases of the output layer.
+    :return: The accuracy as proportion, where 1 indicates a perfect match and 0 indicates a perfect mismatch.
+    """
+    cc = 0
+    for i in range(len(x)):
+        input_layer = x[i]
+        hiddens = []
+        for h in range(len(wh)):
+            if h == 0:
+                hidden = input_layer.dot(wh[h]) + bh[h]
+            else:
+                hidden = hiddens[h - 1].dot(wh[h]) + bh[h]
+            hidden = calculate_activation(hidden, alpha)
+            hiddens.append(hidden)
+        out = hiddens[-1].dot(wo) + bo
+        if np.argmax(out) == y[i]:
+            cc += 1
+    return cc / len(x)
+
 # hyperparameters
 delta = 1  # Data loss parameter
-lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-learning_rate = .1  # The step size for each epoch (influences how greedy the network changes its parameters)
-epochs = 1000  # The amount of iterations the network should take
+lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
+learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
+epochs = 100  # The amount of iterations the network should take
 alpha = .0  # Slope for leaky ReLU
 beta1 = .9  # Hyperparameter for Adam parameter update
 beta2 = .999  # Hyperparameter for Adam parameter update
@@ -214,24 +268,10 @@ k = len(np.unique(y_tr))  # number of classes
 hidden_sizes = [1000, 500, 25]
 out_size = k
 
-# Quick accuracy measure
-# cc = 0
+# Quick accuracy
 # with open('dump.p', 'rb') as file:
 #     wh, wo, bh, bo = load(file)
-#     for i in range(len(x_te)):
-#         input_layer = x_te[i]
-#         hiddens = []
-#         for h in range(len(wh)):
-#             if h == 0:
-#                 hidden = input_layer.dot(wh[h]) + bh[h]
-#             else:
-#                 hidden = hiddens[h - 1].dot(wh[h]) + bh[h]
-#             hidden = calculate_activation(hidden, alpha)
-#             hiddens.append(hidden)
-#         out = hiddens[-1].dot(wo) + bo
-#         if np.argmax(out) == y_te[i]:
-#             cc += 1
-# print(cc / len(x_te))
+#     print(accuracy(x_val, y_val, wh, wo, bh, bo))
 
 # weight initialization (specialized for relu activations)
 wh = []
@@ -256,15 +296,6 @@ for epoch in range(1, epochs):
     # forward pass
     for input_nr in range(len(x_tr)):
         input_layer = x_tr[input_nr]
-        # for h in range(len(hidden_sizes)):
-        #     if h == 0:
-        #         hidden = np.dot(wh[h], input_layer) + bh[h]
-        #         hidden = calculate_activation(hidden, alpha)
-        #         hidden_layers[h].append(hidden)
-        #     else:
-        #         hidden = wh[h].dot(hidden_layers[h - 1][input_nr]) + bh[h]
-        #         hidden = calculate_activation(hidden, alpha)
-        #         hidden_layers[h].append(hidden)
         for h in range(len(hidden_sizes)):
             if h == 0:
                 hidden = input_layer.dot(wh[h]) + bh[h]
@@ -274,41 +305,26 @@ for epoch in range(1, epochs):
                 hidden = hidden_layers[h - 1][input_nr].dot(wh[h]) + bh[h]
                 hidden = calculate_activation(hidden, alpha)
                 hidden_layers[h].append(hidden)
-
-        # hidden1 = input_layer.dot(w_hidden1) + b_hidden1
-        # hidden1 = calculate_activation(hidden1, alpha)
-        # deads += hidden1[hidden1 == 0].size
-        # total += hidden1.size
-        # hiddens_1.append(hidden1)
-        # # ToDo: Apply dropout
-        # hidden2 = hidden1.dot(w_hidden2) + b_hidden2
-        # hidden2 = calculate_activation(hidden2, alpha)
-        # deads += hidden2[hidden2 == 0].size
-        # total += hidden2.size
-        # hiddens_2.append(hidden2)
+        # ToDo: Apply dropout
         out = hidden_layers[-1][input_nr].dot(w_out) + b_out
         out_deads += out[out == 0].size
         outs.append(out)
 
     # Calculate loss
-    loss = calculate_loss(outs, y_tr, w_out, delta, lambda_)
+    loss = calculate_cross_entropy_loss(outs, y_tr, w_out, lambda_)
     print(epoch, loss, deads, total, out_deads)
 
     # Backpropagation
 
-    dscores = loss_gradient_by_scores(outs, y_tr, delta)
-    dwh = [np.full(w_i.shape, 1.0) for w_i in wh]
+    dscores = cross_entropy_loss_gradient(outs, y_tr)
+    dwh = [np.full(w_i.shape, .0) for w_i in wh]
     dbh = [np.empty(b_i.shape) for b_i in bh]
-    dw_out = np.full(w_out.shape, 1.0)
+    dw_out = np.full(w_out.shape, .0)
     db_out = np.empty(b_out.shape)
-
-    dws = [[] for w_i in wh]
-    dos = []
 
     for i in range(len(hidden_layers[0])):
         ds = dscores[i]
-        #dw_out *= hidden_layers[-1][i].T.dot(ds)
-        dos.append(hidden_layers[-1][i].T.dot(ds))
+        dw_out += hidden_layers[-1][i].T.dot(ds)
         db_out += np.sum(ds, axis=0, keepdims=True)
         dhiddens = {}
         for h in range(len(hidden_layers) - 1, -1, -1):
@@ -319,20 +335,18 @@ for epoch in range(1, epochs):
             dhidden[hidden_layers[h][i] < 0] = alpha
             dhiddens[h] = dhidden
             if h == 0:
-                #dwh[h] *= x_tr[i].reshape(1, 3072).T.dot(dhidden)
-                dws[h].append(x_tr[i].reshape(1, 3072).T.dot(dhidden))
+                dwh[h] += x_tr[i].reshape(1, 3072).T.dot(dhidden)
             else:
-                #dwh[h] *= hidden_layers[h - 1][i].T.dot(dhidden)
-                dws[h].append(hidden_layers[h - 1][i].T.dot(dhidden))
+                dwh[h] += hidden_layers[h - 1][i].T.dot(dhidden)
             dbh[h] += np.sum(dhidden, axis=0, keepdims=True)
 
     dw_out += lambda_ * w_out
 
     # Set weights using gradients of backpropagation
     for h in range(len(hidden_layers)):
-        update_parameter(wh[h], np.array(dws).dot(x_tr), epoch, m, v, learning_rate)
+        update_parameter(wh[h], dwh[h], epoch, m, v, learning_rate)
         update_parameter(bh[h], dbh[h], epoch, m, v, learning_rate)
-    update_parameter(w_out, np.array(dos).dot(x_tr), epoch, m, v, learning_rate)
+    update_parameter(w_out, dw_out, epoch, m, v, learning_rate)
     update_parameter(b_out, db_out, epoch, m, v, learning_rate)
 
 with open('dump.p', 'wb') as dump_file:
