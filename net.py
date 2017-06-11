@@ -330,9 +330,9 @@ for epoch in range(1, epochs):
 
     # Set weights using gradients of backpropagation
     for h in range(len(hidden_layers)):
-        update_parameter(wh[h], np.max(dws[h], axis=0), epoch, m, v, learning_rate)
+        update_parameter(wh[h], np.array(dws).dot(x_tr), epoch, m, v, learning_rate)
         update_parameter(bh[h], dbh[h], epoch, m, v, learning_rate)
-    update_parameter(w_out, np.max(dos, axis=0), epoch, m, v, learning_rate)
+    update_parameter(w_out, np.array(dos).dot(x_tr), epoch, m, v, learning_rate)
     update_parameter(b_out, db_out, epoch, m, v, learning_rate)
 
 with open('dump.p', 'wb') as dump_file:
