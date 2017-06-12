@@ -246,8 +246,18 @@ def cross_entropy_loss_gradient(s, y):
     :param y: The ground truth label parameter of the loss function.
     :return: The gradient as a matrix of the same shape as `s`.
     """
-    dscores = s
-    s[range(len(y)), y] -= 1
+    exp_scores = np.exp(s)
+    for i in range(len(y)):
+        for j in range(len(exp_scores[i])):
+            sum_scores = np.sum(exp_scores[i])
+            exp_scores[i][j] = exp_scores[i][j] / sum_scores
+            if j == y[i]:
+                exp_scores[i][j] -= 1
+
+
+    ds = exp_scores / len(y)
+    dscores = probs(s)
+    dscores[range(len(y)), y] -= 1
     dscores /= len(y)
     return dscores
 
@@ -417,7 +427,7 @@ def accuracy(x, y, hidden_sizes, out_size, wh, wo, bh, bo, alpha):
 
 # hyperparameters
 delta = 1  # The minimum margin of the hinge loss
-lambda_ = 0.0  # The regularization strength (has an influence on regularization loss).
+lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
 learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
 epochs = 100  # The amount of 'iterations' the network should take
 alpha = .0  # Slope for leaky ReLU. Set to 0 to avoid leaky ReLU.
@@ -434,7 +444,7 @@ y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
 # Preprocess data
 x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 
-# Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (500 x 1) -> HL (24 x 1) -> OUT (10 x 1)
+# Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (500 x 1) -> HL (25 x 1) -> OUT (10 x 1)
 k = len(np.unique(y_tr))  # number of classes
 n = len(x_tr)  # number of inputs
 hidden_sizes = [1000, 500, 25]
