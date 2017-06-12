@@ -322,6 +322,7 @@ def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
     update = - learning_rate * mt / (np.sqrt(vt) + eps)
     #print(np.mean(update / x))
     x += update
+    return x, m, v
 
 
 def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps, lambda_):
@@ -347,8 +348,14 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps,
     :param eps: Hyperparameter for the Adam parameter update. Recommended to be 1e-8.
     :return: A tuple containing the optimized learnable parameters `wh`, `bh`, `w_out` and `b_out`.
     """
-    m = .0
-    v = .0
+    m_wh = [.0 for i in range(len(wh))]
+    v_wh = [.0 for i in range(len(wh))]
+    m_bh = [.0 for i in range(len(bh))]
+    v_bh = [.0 for i in range(len(bh))]
+    m_w_out = .0
+    v_w_out = .0
+    m_b_out = .0
+    v_b_out = .0
     for epoch in range(1, epochs + 1):
         # Feed-forward the network
         hidden_layers, outs, w_out = forward_pass(x_tr, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha)
@@ -362,10 +369,10 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps,
 
         # Update parameters using gradients of backpropagation
         for h in range(len(hidden_layers)):
-            update_parameter(wh[h], dwh[h], epoch, learning_rate, m, v, beta1, beta2, eps)
-            update_parameter(bh[h], dbh[h], epoch, learning_rate, m, v, beta1, beta2, eps)
-        update_parameter(w_out, dw_out, epoch, learning_rate, m, v, beta1, beta2, eps)
-        update_parameter(b_out, db_out, epoch, learning_rate, m, v, beta1, beta2, eps)
+            wh[h], m_wh[h], v_wh[h] = update_parameter(wh[h], dwh[h], epoch, learning_rate, m_wh[h], v_wh[h], beta1, beta2, eps)
+            bh[h], m_bh[h], v_bh[h] = update_parameter(bh[h], dbh[h], epoch, learning_rate, m_bh[h], v_bh[h], beta1, beta2, eps)
+        w_out, m_w_out, v_w_out = update_parameter(w_out, dw_out, epoch, learning_rate, m_w_out, v_w_out, beta1, beta2, eps)
+        b_out, m_b_out, v_b_out = update_parameter(b_out, db_out, epoch, learning_rate, m_b_out, v_b_out, beta1, beta2, eps)
     return wh, bh, w_out, b_out
 
 
@@ -410,7 +417,7 @@ def accuracy(x, y, hidden_sizes, out_size, wh, wo, bh, bo, alpha):
 
 # hyperparameters
 delta = 1  # The minimum margin of the hinge loss
-lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
+lambda_ = 0.0  # The regularization strength (has an influence on regularization loss).
 learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
 epochs = 100  # The amount of 'iterations' the network should take
 alpha = .0  # Slope for leaky ReLU. Set to 0 to avoid leaky ReLU.
