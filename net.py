@@ -1,6 +1,6 @@
 import numpy as np
 from pickle import dump, load
-from math import log, sqrt
+from math import sqrt
 
 
 def unpickle(file):
@@ -12,7 +12,7 @@ def unpickle(file):
 def get_data():
     """
     Reads input data from the 'data' directory.
-    :return: A matrix of form 5000 x 3072
+    :return: A matrix of form 50000 x 3072
     """
     x_data = None
     y_data = []
@@ -106,7 +106,7 @@ def calculate_activation(x, alpha):
     return x
 
 
-def forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha):
+def forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p):
     """
     Performs the forward pass of a neural network.
     :param x: The input data of form (N x D), where N is the number of observations an D is the dimensionality.
@@ -121,6 +121,7 @@ def forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha):
     where H is the size of the last hidden layer.
     :param b_out: The bias of the output layer as vector of length out_size.
     :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
+    :param p: The probability of each neuron to be dropped out. Set to 1 to disable dropout.
     :return: A tuple consisting of the following values:
     * An array containing the values of each hidden layer as vector of length hidden_size[i] for every input observation.
     * An array containing the class scores of each input observation.
@@ -133,13 +134,12 @@ def forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha):
         for h in range(len(hidden_sizes)):
             if h == 0:
                 hidden = input_layer.dot(wh[h]) + bh[h]
-                hidden = calculate_activation(hidden, alpha)
-                hidden_layers[h][input_nr] = hidden
             else:
                 hidden = hidden_layers[h - 1][input_nr].dot(wh[h]) + bh[h]
-                hidden = calculate_activation(hidden, alpha)
-                hidden_layers[h][input_nr] = hidden
-        # ToDo: Apply dropout
+            hidden = calculate_activation(hidden, alpha)
+            dropout_mask = (np.random.randn(*hidden.shape) < p) / p
+            hidden *= dropout_mask
+            hidden_layers[h][input_nr] = hidden
         out = hidden_layers[-1][input_nr].dot(w_out) + b_out
         outs[input_nr] = out
     return hidden_layers, outs, w_out
@@ -246,16 +246,6 @@ def cross_entropy_loss_gradient(s, y):
     :param y: The ground truth label parameter of the loss function.
     :return: The gradient as a matrix of the same shape as `s`.
     """
-    exp_scores = np.exp(s)
-    for i in range(len(y)):
-        for j in range(len(exp_scores[i])):
-            sum_scores = np.sum(exp_scores[i])
-            exp_scores[i][j] = exp_scores[i][j] / sum_scores
-            if j == y[i]:
-                exp_scores[i][j] -= 1
-
-
-    ds = exp_scores / len(y)
     dscores = probs(s)
     dscores[range(len(y)), y] -= 1
     dscores /= len(y)
@@ -335,7 +325,7 @@ def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
     return x, m, v
 
 
-def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps, lambda_):
+def train(epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_):
     """
     Trains a neural network. The learnable parameters `wh`, `bh`, `w_out` and `b_out` are optimized as long as
     `epochs` indicates and then returned.
@@ -352,6 +342,7 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps,
     :param learning_rate: Indicates the step size of each learning epoch. High values lead to faster trainings,
     but also inhibit the risk of overstepping. Low values take longer to train, but will eventually reach the desired
     effect.
+    :param p: The probability of each neuron to be dropped out. Set to 1 to disable dropout.
     :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
     :param beta1: Hyperparameter for the Adam parameter update. Recommended to be .9.
     :param beta2: Hyperparameter for the Adam parameter update. Recommended to be .999.
@@ -368,7 +359,7 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps,
     v_b_out = .0
     for epoch in range(1, epochs + 1):
         # Feed-forward the network
-        hidden_layers, outs, w_out = forward_pass(x_tr, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha)
+        hidden_layers, outs, w_out = forward_pass(x_tr, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
 
         # Calculate loss
         loss = calculate_cross_entropy_loss(outs, y_tr, w_out, lambda_)
@@ -386,7 +377,7 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps,
     return wh, bh, w_out, b_out
 
 
-def predict(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha):
+def predict(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p):
     """
     Predicts the classes of the given input observations.
     :param x: The input observations to classify.
@@ -401,12 +392,13 @@ def predict(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha):
     where H is the size of the last hidden layer.
     :param b_out: The bias of the output layer as vector of length out_size.
     :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
+    :param p: The probability of each neuron to be dropped out. Set to 1 to disable dropout.
     :return: The indices of the correct classes.
     """
-    _, out, _ = forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha)
+    _, out, _ = forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
     return np.argmax(out, axis=1)
 
-def accuracy(x, y, hidden_sizes, out_size, wh, wo, bh, bo, alpha):
+def accuracy(x, y, hidden_sizes, out_size, wh, wo, bh, bo, alpha, p):
     """
     Measures the accuracy of a nerual network. Specifically the proportion of correct predictions of input data x
     using the parameters wh, wo, bh, bo and the ground truth labels y.
@@ -419,21 +411,23 @@ def accuracy(x, y, hidden_sizes, out_size, wh, wo, bh, bo, alpha):
     :param bh: The biases of each hidden layer as an array.
     :param bo: The biases of the output layer.
     :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
+    :param p: The probability of each neuron to be dropped out. Set to 1 to disable dropout.
     :return: The accuracy as proportion, where 1 indicates a perfect match and 0 indicates a perfect mismatch.
     """
-    predicted_classes = predict(x, hidden_sizes, out_size, wh, bh, wo, bo, alpha)
+    predicted_classes = predict(x, hidden_sizes, out_size, wh, bh, wo, bo, alpha, p)
     correct_classes = len(np.where(predicted_classes == y))
     return correct_classes / len(x)
 
 # hyperparameters
-delta = 1  # The minimum margin of the hinge loss
-lambda_ = 0.1  # The regularization strength (has an influence on regularization loss).
-learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
-epochs = 100  # The amount of 'iterations' the network should take
 alpha = .0  # Slope for leaky ReLU. Set to 0 to avoid leaky ReLU.
 beta1 = .9  # Hyperparameter for Adam parameter update
 beta2 = .999  # Hyperparameter for Adam parameter update
+delta = 1  # The minimum margin of the hinge loss
 eps = 1e-8  # Hyperparameter for Adam parameter update
+lambda_ = .1  # The regularization strength (has an influence on regularization loss).
+epochs = 100  # The amount of 'iterations' the network should take
+learning_rate = .0001  # The step size for each epoch (influences how greedy the network changes its parameters)
+p = .5  # Dropout rate as the possibility of each neuron to be dropped out.
 
 # Input data: 80 % train, 10 % val, 10 % test
 x_data, y_data = get_data()
@@ -454,7 +448,7 @@ out_size = k
 wh, bh, w_out, b_out = initialize_parameters(x_tr[0].shape[0], hidden_sizes, out_size)
 
 # Train the network
-train(epochs, wh, bh, w_out, b_out, learning_rate, alpha, beta1, beta2, eps, lambda_)
+train(epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_)
 
 # Save parameters for reuse
 with open('dump.p', 'wb') as dump_file:
@@ -463,4 +457,4 @@ with open('dump.p', 'wb') as dump_file:
 # Quick accuracy
 with open('dump.p', 'rb') as file:
     wh, wo, bh, bo = load(file)
-    print(accuracy(x_val, y_val, hidden_sizes, out_size, wh, wo, bh, bo, alpha))
+    print(accuracy(x_tr, y_tr, hidden_sizes, out_size, wh, wo, bh, bo, alpha, p))
