@@ -24,7 +24,7 @@ def get_data():
         else:
             x_data = np.concatenate((x_data, batch[b'data']), axis=0)
             y_data += batch[b'labels']
-    return x_data[:1000], y_data[:1000]
+    return x_data, y_data
 
 
 def split_data(data, train, val, test):
@@ -137,7 +137,7 @@ def forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p):
             else:
                 hidden = hidden_layers[h - 1][input_nr].dot(wh[h]) + bh[h]
             hidden = calculate_activation(hidden, alpha)
-            dropout_mask = (np.random.randn(*hidden.shape) < p) / p
+            dropout_mask = (np.random.random(hidden.shape) < p) / p
             hidden *= dropout_mask
             hidden_layers[h][input_nr] = hidden
         out = hidden_layers[-1][input_nr].dot(w_out) + b_out
@@ -325,10 +325,12 @@ def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
     return x, m, v
 
 
-def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_):
+def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_, batch_size = 0):
     """
     Trains a neural network. The learnable parameters `wh`, `bh`, `w_out` and `b_out` are optimized as long as
     `epochs` indicates and then returned.
+    :param x: The input data of form (N x D), where N is the number of observations an D is the dimensionality.
+    :param y: The ground truth labels for each observation.
     :param epochs: The amount of runs a network should take. (Note: The number of iterations is 2 * N * epochs,
     where N is the number of inputs.)
     :param wh: The initialized weights of each hidden layer connection as array. Each weight is a matrix of (H_i-1 ... H_i),
@@ -347,6 +349,10 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
     :param beta1: Hyperparameter for the Adam parameter update. Recommended to be .9.
     :param beta2: Hyperparameter for the Adam parameter update. Recommended to be .999.
     :param eps: Hyperparameter for the Adam parameter update. Recommended to be 1e-8.
+    :param batch_size: The number of input observations to use in each epoch. If this parameter is set to a positive
+    value, it will enable Minibatch gradient descent, whereby only a random subset of the input observations is used
+    to optimize parameters. This greatly improves performance and yields about the same accuracy as using all input
+    observations.
     :return: A tuple containing the optimized learnable parameters `wh`, `bh`, `w_out` and `b_out`.
     """
     m_wh = [.0 for i in range(len(wh))]
@@ -359,16 +365,23 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
     v_b_out = .0
     losses = []
     for epoch in range(1, epochs + 1):
+        if batch_size > 0:
+            random_indices = np.random.randint(len(x), size=batch_size)
+            batch_x = x[random_indices, :]
+            batch_y = [y[i] for i in random_indices]
+        else:
+            batch = x
+            batch_y = y
         # Feed-forward the network
-        hidden_layers, outs, w_out = forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
+        hidden_layers, outs, w_out = forward_pass(batch_x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
 
         # Calculate loss
-        loss = calculate_cross_entropy_loss(outs, y, w_out, lambda_)
+        loss = calculate_cross_entropy_loss(outs, batch_y, w_out, lambda_)
         losses.append(loss)
         print(epoch, loss)
 
         # Backpropagation
-        dwh, dbh, dw_out, db_out = backpropagation(x, outs, y, hidden_layers, wh, bh, w_out, b_out, alpha)
+        dwh, dbh, dw_out, db_out = backpropagation(batch_x, outs, batch_y, hidden_layers, wh, bh, w_out, b_out, alpha)
 
         # Update parameters using gradients of backpropagation
         for h in range(len(hidden_layers)):
@@ -440,9 +453,10 @@ beta2 = .999  # Hyperparameter for Adam parameter update
 delta = 1  # The minimum margin of the hinge loss
 eps = 1e-8  # Hyperparameter for Adam parameter update
 lambda_ = .1  # The regularization strength (has an influence on regularization loss).
-epochs = 50  # The amount of 'iterations' the network should take
+batch_size = 128
+epochs = 500  # The amount of 'iterations' the network should take
 learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters)
-p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
+p = .5  # Dropout rate as the possibility of each neuron to be dropped out.
 
 # Input data: 80 % train, 10 % val, 10 % test
 x_data, y_data = get_data()
@@ -456,14 +470,14 @@ x_tr, x_val, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_val, x_te)
 # Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (500 x 1) -> HL (25 x 1) -> OUT (10 x 1)
 k = len(np.unique(y_tr))  # number of classes
 n = len(x_tr)  # number of inputs
-hidden_sizes = [1000, 100]
+hidden_sizes = [1000, 250, 100]
 out_size = k
 
 # Parameter initialization
 wh, bh, w_out, b_out = initialize_parameters(x_tr[0].shape[0], hidden_sizes, out_size)
 
 # Train the network
-train(x_tr, y_tr, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_)
+train(x_tr, y_tr, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_, batch_size=128)
 
 # Save parameters for reuse
 with open('dump.p', 'wb') as dump_file:
@@ -472,4 +486,4 @@ with open('dump.p', 'wb') as dump_file:
 # Quick accuracy
 with open('dump.p', 'rb') as file:
     wh, wo, bh, bo = load(file)
-    print(accuracy(x_tr, y_tr, hidden_sizes, out_size, wh, wo, bh, bo, alpha))
+    print(accuracy(x_val, y_val, hidden_sizes, out_size, wh, wo, bh, bo, alpha))
