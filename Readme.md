@@ -42,7 +42,7 @@ A cross-entropy loss function rates the network performance at test time.
 
 ### Output layer
 The output layer contains the class scores for each input observation. There are 10 scores, each representing a class.
-The highest class should be the correct class
+The highest class should be the correct class.
 
 
 Conclusio

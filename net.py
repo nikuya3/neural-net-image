@@ -293,7 +293,7 @@ def backpropagation(x, s, y, hidden_layers, wh, bh, w_out, b_out, alpha):
             dhidden[hidden_layers[h][i] < 0] = alpha
             dhiddens[h] = dhidden
             if h == 0:
-                dwh[h] += np.asmatrix(x_tr[i]).T.dot(np.asmatrix(dhidden))
+                dwh[h] += np.asmatrix(x[i]).T.dot(np.asmatrix(dhidden))
             else:
                 dwh[h] += np.asmatrix(hidden_layers[h - 1][i]).T.dot(np.asmatrix(dhidden))
             dbh[h] += np.sum(dhidden, axis=0, keepdims=True)
@@ -325,7 +325,7 @@ def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
     return x, m, v
 
 
-def train(epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_):
+def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_):
     """
     Trains a neural network. The learnable parameters `wh`, `bh`, `w_out` and `b_out` are optimized as long as
     `epochs` indicates and then returned.
@@ -360,15 +360,15 @@ def train(epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, e
     losses = []
     for epoch in range(1, epochs + 1):
         # Feed-forward the network
-        hidden_layers, outs, w_out = forward_pass(x_tr, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
+        hidden_layers, outs, w_out = forward_pass(x, hidden_sizes, out_size, wh, bh, w_out, b_out, alpha, p)
 
         # Calculate loss
-        loss = calculate_cross_entropy_loss(outs, y_tr, w_out, lambda_)
+        loss = calculate_cross_entropy_loss(outs, y, w_out, lambda_)
         losses.append(loss)
         print(epoch, loss)
 
         # Backpropagation
-        dwh, dbh, dw_out, db_out = backpropagation(x_tr, outs, y_tr, hidden_layers, wh, bh, w_out, b_out, alpha)
+        dwh, dbh, dw_out, db_out = backpropagation(x, outs, y, hidden_layers, wh, bh, w_out, b_out, alpha)
 
         # Update parameters using gradients of backpropagation
         for h in range(len(hidden_layers)):
@@ -463,7 +463,7 @@ out_size = k
 wh, bh, w_out, b_out = initialize_parameters(x_tr[0].shape[0], hidden_sizes, out_size)
 
 # Train the network
-train(epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_)
+train(x_tr, y_tr, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_)
 
 # Save parameters for reuse
 with open('dump.p', 'wb') as dump_file:

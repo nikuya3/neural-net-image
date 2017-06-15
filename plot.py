@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 
-with open('../s', 'r') as file:
+with open('losses.txt', 'r') as file:
     content = file.readlines()
     losses = [float(line) for line in content]
     plt.plot(losses)
