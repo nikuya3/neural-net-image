@@ -1,4 +1,4 @@
-import numpy as np
+import minpy.numpy as np
 from pickle import dump, load
 from math import sqrt
 
@@ -19,10 +19,10 @@ def get_training_data():
     for nr in range(1, 6):
         batch = unpickle('data/data_batch_' + str(nr))
         if x_data is None:
-            x_data = batch[b'data']
+            x_data = np.asarray(batch[b'data'])
             y_data = batch[b'labels']
         else:
-            x_data = np.concatenate((x_data, batch[b'data']), axis=0)
+            x_data = np.concatenate([np.asarray(x_data), np.asarray(batch[b'data'])], axis=0)
             y_data += batch[b'labels']
     return x_data, y_data
 
@@ -61,10 +61,6 @@ def preprocess_data(train, test, validation=None):
     :param validation: An optional numpy matrix containing the data used to apply hyperparameter validation on the network.
     :return: The preprocessed matrices.
     """
-    train = train.astype(float)
-    if validation is not None:
-        validation = validation.astype(float)
-    test = test.astype(float)
     # Zero-centering (subtracting the mean)
     mean = np.mean(train, axis=0)  # Using statistic of training set
     train -= mean
@@ -137,7 +133,7 @@ def forward_pass(x, hidden_sizes, wh, bh, w_out, b_out, alpha, p):
     * An array containing the class scores of each input observation.
     * The connection weights of the last layer (output_layer).
     """
-    hidden_layers = [np.empty((len(x), size)) for size in hidden_sizes]
+    hidden_layers = [np.empty((x.shape[0], size)) for size in hidden_sizes]
     for h in range(len(hidden_sizes)):
         if h == 0:
             hidden = x.dot(wh[h]) + bh[h]
@@ -216,8 +212,8 @@ def calculate_cross_entropy_loss(s, y, w, lambda_):
     and +Inf indicates a perfect mismatch.
     """
     probabilities = probs(s)
-    log_probabilities = - np.log(probabilities[range(len(y)), y])
-    data_loss = np.sum(log_probabilities) / len(y)
+    log_probabilities = - np.log(probabilities[np.array(range(y.shape[0])), y])
+    data_loss = np.sum(log_probabilities) / y.shape[0]
     return data_loss + regularization_loss(w, lambda_)
 
 
@@ -253,8 +249,8 @@ def cross_entropy_loss_gradient(s, y):
     :return: The gradient as a matrix of the same shape as `s`.
     """
     dscores = probs(s)
-    dscores[range(len(y)), y] -= 1
-    dscores /= len(y)
+    dscores[np.array(range(y.shape[0])), y] -= 1
+    dscores /= y.shape[0]
     return dscores
 
 
@@ -371,7 +367,7 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
         if batch_size > 0:
             random_indices = np.random.randint(x.shape[0], size=batch_size)
             batch_x = x[random_indices, :]
-            batch_y = [y[i] for i in random_indices]
+            batch_y = np.array([y[int(i)] for i in random_indices])
         else:
             batch_x = x
             batch_y = y
@@ -381,9 +377,9 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
         # Calculate loss
         loss = calculate_cross_entropy_loss(outs, batch_y, w_out, lambda_)
         losses.append(loss)
-        predicted_classes = np.argmax(outs, axis=1)
-        correct_classes = len(np.where(predicted_classes == batch_y)[0])
-        accuracy = correct_classes / len(predicted_classes)
+        predicted_classes = np.argmax(outs, axis=1, out=None)
+        correct_classes = np.where(predicted_classes == batch_y, x=predicted_classes, y=np.array([]))[0].shape[0]
+        accuracy = correct_classes / predicted_classes.shape[0]
         accuracies.append(accuracy)
         print(epoch, loss, accuracy)
 
@@ -456,8 +452,8 @@ beta2 = .999  # Hyperparameter for Adam parameter update.
 delta = 1  # The minimum margin of the hinge loss.
 eps = 1e-8  # Hyperparameter for Adam parameter update.
 lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-batch_size = 2048  # The size of batches (used to speed up training).
-epochs = 150  # The amount of 'iterations' the network should take
+batch_size = 512  # The size of batches (used to speed up training).
+epochs = 100  # The amount of 'iterations' the network should take
 learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters).
 p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
 
