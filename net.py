@@ -456,7 +456,7 @@ beta2 = .999  # Hyperparameter for Adam parameter update.
 delta = 1  # The minimum margin of the hinge loss.
 eps = 1e-8  # Hyperparameter for Adam parameter update.
 lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-batch_size = 2048  # The size of batches (used to speed up training).
+batch_size = 0  # The size of batches (used to speed up training).
 epochs = 150  # The amount of 'iterations' the network should take
 learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters).
 p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
@@ -472,7 +472,7 @@ x_te, y_te = get_test_data()
 x_tr, _, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_te)
 
 # Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (250 x 1) -> HL (100 x 1) -> OUT (10 x 1)
-hidden_sizes = [1000, 500, 50]
+hidden_sizes = [10000, 5000, 1000, 100]
 out_size = np.unique(y_tr).shape[0]  # number of classes
 
 # Parameter initialization

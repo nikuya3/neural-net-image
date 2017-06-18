@@ -13,7 +13,7 @@ Results
 ---
 The objective is to predict the classes of the test dataset (10000 images) based on trained parameters using the 50000
 training images. Until now, the best accuracy (defined as number of correct predictions / number of total predictions)
-is 44 %.
+is 46 %.
 
 Architecture
 ---
