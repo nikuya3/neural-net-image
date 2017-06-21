@@ -3,37 +3,15 @@ from pickle import dump, load
 from math import sqrt
 
 
-def unpickle(file):
-    with open(file, 'rb') as fo:
-        data = load(fo, encoding='bytes')
-    return data
-
-
-def get_training_data():
+def write_list(list, filename):
     """
-    Reads input data from the 'data' directory.
-    :return: A matrix of form 50000 x 3072
+    Writes a list to a file.
+    :param list: The list to be written.
+    :param filename: The name of the new file.
     """
-    x_data = None
-    y_data = []
-    for nr in range(1, 6):
-        batch = unpickle('data/data_batch_' + str(nr))
-        if x_data is None:
-            x_data = batch[b'data']
-            y_data = batch[b'labels']
-        else:
-            x_data = np.concatenate((x_data, batch[b'data']), axis=0)
-            y_data += batch[b'labels']
-    return x_data, y_data
-
-
-def get_test_data():
-    """
-    Reads test data from the 'data' directory.
-    :return: A matrix of form 10000 x 3072
-    """
-    batch = unpickle('data/test_batch')
-    return batch[b'data'], batch[b'labels']
+    with open(filename, 'w') as file:
+        for item in list:
+            file.write(str(item) + '\n')
 
 
 def split_data(data, train, val, test):
@@ -51,33 +29,6 @@ def split_data(data, train, val, test):
     test_end = int(len(training_set) + len(val_set) + len(data) * test)
     test_set = data[val_end:test_end]
     return training_set, val_set, test_set
-
-
-def preprocess_data(train, test, validation=None):
-    """
-    Applies zero-centering and normalization of input data for better model performance.
-    :param train: A numpy matrix containing the data the network is trained on.
-    :param test: A numpy matrix containing the data used to test the network.
-    :param validation: An optional numpy matrix containing the data used to apply hyperparameter validation on the network.
-    :return: The preprocessed matrices.
-    """
-    train = train.astype(float)
-    if validation is not None:
-        validation = validation.astype(float)
-    test = test.astype(float)
-    # Zero-centering (subtracting the mean)
-    mean = np.mean(train, axis=0)  # Using statistic of training set
-    train -= mean
-    if validation is not None:
-        validation -= mean
-    test -= mean
-    # Normalization of data dimension to be of equal scale (division by standard deviation)
-    std = np.std(train, axis=0)
-    train /= std
-    if validation is not None:
-        validation /= std
-    test /= std
-    return train, validation, test, mean, std
 
 
 def initialize_parameters(input_size, hidden_sizes, output_size):
@@ -102,6 +53,24 @@ def initialize_parameters(input_size, hidden_sizes, output_size):
     return wh, bh, w_out, b_out
 
 
+def get_batches(x, y, batch_size):
+    """
+    Gets a random subset of arrays x and y.
+    :param x: An array to use.
+    :param y: Another array to use.
+    :param batch_size: The size of the subset.
+    :return: A random subset of arrays x and y.
+    """
+    if batch_size > 0:
+        random_indices = np.random.randint(x.shape[0], size=batch_size)
+        batch_x = x[random_indices, :]
+        batch_y = [y[i] for i in random_indices]
+    else:
+        batch_x = x
+        batch_y = y
+    return batch_x, batch_y
+
+
 def calculate_activation(x, alpha):
     """
     Performs the activation function of a layer.
@@ -115,6 +84,18 @@ def calculate_activation(x, alpha):
     """
     x[x < 0] *= alpha
     return x
+
+
+def activation_gradient(dx, x, alpha):
+    """
+    Calculates the gradient of the activation function in the backpropagation process. This network uses (leaky) ReLU.
+    :param dx: The preceding gradient of the input matrix.
+    :param x: The activated input matrix of the feedforward process.
+    :param alpha: The factor by which negative inputs are scaled in leaky ReLU. Set to 0 to avoid leaky ReLU.
+    :return: The gradient dx enriched by the gradient of the activation.
+    """
+    dx[x < 0] = alpha
+    return dx
 
 
 def forward_pass(x, hidden_sizes, wh, bh, w_out, b_out, alpha, p):
@@ -179,6 +160,17 @@ def regularization_loss(w, lambda_):
     :return: The regularization loss.
     """
     return .5 * lambda_ * np.sum(np.square(w))
+
+
+def regularization_loss_gradient_by_weights(w, lambda_):
+    """
+    Calculates the gradient of the regularization loss function by the weights.
+    :param w: The weight matrix of the output layer of form (H x K),
+    where H is the size of the previous layer and K is the number of classes.
+    :param lambda_: A hyperparameter used to control the magnitude of the weight.
+    :return: The gradient.
+    """
+    return lambda_ * w
 
 
 def calculate_hinge_loss(s, y, w, delta, lambda_):
@@ -258,7 +250,21 @@ def cross_entropy_loss_gradient(s, y):
     return dscores
 
 
-def backpropagation(x, s, y, hidden_layers, wh, bh, w_out, b_out, alpha):
+def calculate_accuracy(scores, y):
+    """
+    Calculates the accuracy of a batch of prediction (defined as the amount of correct predictions in proportion to
+    the amount of total predictions).
+    :param scores: The output layer of the network, as matrix of size (N x K), where N is the number of observations to
+    predict and K is the number of classes.
+    :param y: The ground truth labels for the observations as class indices.
+    :return: The accuracy value.
+    """
+    predicted_classes = np.argmax(scores, axis=1)
+    correct_classes = len(np.where(predicted_classes == y)[0])
+    return correct_classes / len(predicted_classes)
+
+
+def backpropagation(x, s, y, hidden_layers, wh, bh, w_out, b_out, alpha, lambda_):
     """
     Performs the backpropagation of a neural network.
     :param x: The input data of form (N x D), where N is the number of observations an D is the dimensionality.
@@ -274,6 +280,7 @@ def backpropagation(x, s, y, hidden_layers, wh, bh, w_out, b_out, alpha):
     where H is the size of the last hidden layer and K is the number of classes.
     :param b_out: The bias of the output layer as vector of length K, where K is the number of classes.
     :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
+    :param lambda_: The regularization loss hyperparameter.
     :return: The backpropagation returns relevant gradients as a tuple containing the following values:
     * An array containing the gradients for the connection weights of each hidden layer of the same form as `wh`.
     * An array containing the gradients for the biases of each hidden layer of the same form as `bh`.
@@ -281,25 +288,25 @@ def backpropagation(x, s, y, hidden_layers, wh, bh, w_out, b_out, alpha):
     * An array containing the gradients for the biases of the output layer of the same form as `b_out`.
     """
     dscores = cross_entropy_loss_gradient(s, y)
-    dw_out2 = hidden_layers[-1].T.dot(dscores)
-    db_out2 = np.sum(dscores, axis=0, keepdims=True)
+    dw_out = hidden_layers[-1].T.dot(dscores)
+    db_out = np.sum(dscores, axis=0, keepdims=True)
     dhiddens = {}
-    dwh2 = [np.full(w_i.shape, .0) for w_i in wh]
-    dbh2 = [np.empty(b_i.shape) for b_i in bh]
+    dwh = [np.full(w_i.shape, .0) for w_i in wh]
+    dbh = [np.empty(b_i.shape) for b_i in bh]
     for h in range(len(hidden_layers) - 1, -1, -1):
         if h == len(hidden_layers) - 1:
             dhidden = dscores.dot(w_out.T)
         else:
             dhidden = dhiddens[h + 1].dot(wh[h + 1].T)
-        dhidden[hidden_layers[h] < 0] = alpha
+        dhidden = activation_gradient(dhidden, hidden_layers[h], alpha)
         dhiddens[h] = dhidden
         if h == 0:
-            dwh2[h] = x.T.dot(dhidden)
+            dwh[h] = x.T.dot(dhidden)
         else:
-            dwh2[h] = hidden_layers[h - 1].T.dot(dhidden)
-        dbh2[h] = np.sum(dhidden, axis=0, keepdims=True)
-    dw_out2 += lambda_ * w_out
-    return dwh2, dbh2, dw_out2, db_out2
+            dwh[h] = hidden_layers[h - 1].T.dot(dhidden)
+        dbh[h] = np.sum(dhidden, axis=0, keepdims=True)
+    dw_out += regularization_loss_gradient_by_weights(w_out, lambda_)
+    return dwh, dbh, dw_out, db_out
 
 
 def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
@@ -321,13 +328,12 @@ def update_parameter(x, dx, epoch, learning_rate, m, v, beta1, beta2, eps):
     v = beta2 * v + (1 - beta2) * (np.square(dx))
     vt = v / (1 - beta2 ** epoch)
     update = - learning_rate * mt / (np.sqrt(vt) + eps)
-    #print(np.mean(update / x))
     x += update
-    # x += - learning_rate * dx
     return x, m, v
 
 
-def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_, batch_size = 0):
+def train(x, y, epochs, hidden_sizes, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_,
+          batch_size=0):
     """
     Trains a neural network. The learnable parameters `wh`, `bh`, `w_out` and `b_out` are optimized as long as
     `epochs` indicates and then returned.
@@ -335,6 +341,7 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
     :param y: The ground truth labels for each observation.
     :param epochs: The amount of runs a network should take. (Note: The number of iterations is 2 * N * epochs,
     where N is the number of inputs.)
+    :param hidden_sizes: The size of each hidden layer as array.
     :param wh: The initialized weights of each hidden layer connection as array. Each weight is a matrix of (H_i-1 ... H_i),
     where H_i-1 is the size of the previous hidden layer (or the input layer) and H_i is the size of the corresponding
     hidden layer..
@@ -368,44 +375,38 @@ def train(x, y, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, be
     losses = []
     accuracies = []
     for epoch in range(1, epochs + 1):
-        if batch_size > 0:
-            random_indices = np.random.randint(x.shape[0], size=batch_size)
-            batch_x = x[random_indices, :]
-            batch_y = [y[i] for i in random_indices]
-        else:
-            batch_x = x
-            batch_y = y
+        batch_x, batch_y = get_batches(x, y, batch_size)
+
         # Feed-forward the network
         hidden_layers, outs, w_out = forward_pass(batch_x, hidden_sizes, wh, bh, w_out, b_out, alpha, p)
 
-        # Calculate loss
+        # Calculate loss and accuracy measures
         loss = calculate_cross_entropy_loss(outs, batch_y, w_out, lambda_)
         losses.append(loss)
-        predicted_classes = np.argmax(outs, axis=1)
-        correct_classes = len(np.where(predicted_classes == batch_y)[0])
-        accuracy = correct_classes / len(predicted_classes)
+        accuracy = calculate_accuracy(outs, batch_y)
         accuracies.append(accuracy)
         print(epoch, loss, accuracy)
 
         # Backpropagation
-        dwh, dbh, dw_out, db_out = backpropagation(batch_x, outs, batch_y, hidden_layers, wh, bh, w_out, b_out, alpha)
+        dwh, dbh, dw_out, db_out = backpropagation(batch_x, outs, batch_y, hidden_layers, wh, bh, w_out, b_out, alpha,
+                                                   lambda_)
 
         # Update parameters using gradients of backpropagation
         for h in range(len(hidden_layers)):
-            wh[h], m_wh[h], v_wh[h] = update_parameter(wh[h], dwh[h], epoch, learning_rate, m_wh[h], v_wh[h], beta1, beta2, eps)
-            bh[h], m_bh[h], v_bh[h] = update_parameter(bh[h], dbh[h], epoch, learning_rate, m_bh[h], v_bh[h], beta1, beta2, eps)
-        w_out, m_w_out, v_w_out = update_parameter(w_out, dw_out, epoch, learning_rate, m_w_out, v_w_out, beta1, beta2, eps)
-        b_out, m_b_out, v_b_out = update_parameter(b_out, db_out, epoch, learning_rate, m_b_out, v_b_out, beta1, beta2, eps)
-    with open('losses.txt', 'w') as file:
-        for loss in losses:
-            file.write(str(loss) + '\n')
-    with open('accuracies.txt', 'w') as file:
-        for accuracy in accuracies:
-            file.write(str(accuracy) + '\n')
+            wh[h], m_wh[h], v_wh[h] =\
+                update_parameter(wh[h], dwh[h], epoch, learning_rate, m_wh[h], v_wh[h], beta1, beta2, eps)
+            bh[h], m_bh[h], v_bh[h] =\
+                update_parameter(bh[h], dbh[h], epoch, learning_rate, m_bh[h], v_bh[h], beta1, beta2, eps)
+        w_out, m_w_out, v_w_out =\
+            update_parameter(w_out, dw_out, epoch, learning_rate, m_w_out, v_w_out, beta1, beta2, eps)
+        b_out, m_b_out, v_b_out =\
+            update_parameter(b_out, db_out, epoch, learning_rate, m_b_out, v_b_out, beta1, beta2, eps)
+    write_list(losses, 'losses.txt')
+    write_list(accuracies, 'accuracies.txt')
     return wh, bh, w_out, b_out
 
 
-def predict(x, wh, bh, w_out, b_out, alpha):
+def predict(x, wh, bh, w_out, b_out, alpha=0):
     """
     Predicts the classes of the given input observations.
     :param x: The input observations to classify.
@@ -429,63 +430,4 @@ def predict(x, wh, bh, w_out, b_out, alpha):
         hidden = calculate_activation(hidden, alpha)
         hidden_layers.append(hidden)
     outs = hidden_layers[-1].dot(w_out) + b_out
-    return np.argmax(outs, axis=1)
-
-
-def accuracy(x, y, wh, wo, bh, bo, alpha):
-    """
-    Measures the accuracy of a nerual network. Specifically the proportion of correct predictions of input data x
-    using the parameters wh, wo, bh, bo and the ground truth labels y.
-    :param x: The input data to be predicted.
-    :param y: The ground truth labels for the input data.
-    :param wh: The weights of each hidden layer as an array.
-    :param wo: The weights of the output layer.
-    :param bh: The biases of each hidden layer as an array.
-    :param bo: The biases of the output layer.
-    :param alpha: The factor by which negative inputs are scaled in ReLU activations. Set to 0 to avoid leaky ReLU.
-    :return: The accuracy as proportion, where 1 indicates a perfect match and 0 indicates a perfect mismatch.
-    """
-    predicted_classes = predict(x, wh, bh, wo, bo, alpha)
-    correct_classes = len(np.where(predicted_classes == y)[0])
-    return correct_classes / len(x)
-
-# hyperparameters
-alpha = .0  # Slope for leaky ReLU. Set to 0 to avoid leaky ReLU.
-beta1 = .9  # Hyperparameter for Adam parameter update.
-beta2 = .999  # Hyperparameter for Adam parameter update.
-delta = 1  # The minimum margin of the hinge loss.
-eps = 1e-8  # Hyperparameter for Adam parameter update.
-lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-batch_size = 0  # The size of batches (used to speed up training).
-epochs = 150  # The amount of 'iterations' the network should take
-learning_rate = .001  # The step size for each epoch (influences how greedy the network changes its parameters).
-p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
-
-# Input data: 50000 training observations, 10000 test observations (no validation set).
-x_tr, y_tr = get_training_data()
-x_te, y_te = get_test_data()
-
-# x_tr, x_val, x_te = split_data(x_data, .8, .1, .1)
-# y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
-
-# Preprocess data
-x_tr, _, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_te)
-
-# Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (250 x 1) -> HL (100 x 1) -> OUT (10 x 1)
-hidden_sizes = [10000, 5000, 1000, 100]
-out_size = np.unique(y_tr).shape[0]  # number of classes
-
-# Parameter initialization
-wh, bh, w_out, b_out = initialize_parameters(x_tr[0].shape[0], hidden_sizes, out_size)
-
-# Train the network
-train(x_tr, y_tr, epochs, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_, batch_size)
-
-# Save parameters for reuse
-with open('dump.p', 'wb') as dump_file:
-    dump((wh, w_out, bh, b_out), dump_file)
-
-# Quick accuracy
-with open('dump.p', 'rb') as file:
-    wh, wo, bh, bo = load(file)
-    print(accuracy(x_te, y_te, wh, wo, bh, bo, alpha))
+    return outs

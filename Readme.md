@@ -15,6 +15,23 @@ The objective is to predict the classes of the test dataset (10000 images) based
 training images. Until now, the best accuracy (defined as number of correct predictions / number of total predictions)
 is 46 %.
 
+Usage
+---
+There are two ways to test the neural network.
+
+### test.py
+You can run test.py (`./test.py`) to train the neural network. test.py will also train an equivalent Keras network and
+compare those two networks using their test accuracy metric. It's also possible to tweak hyperparameters to see how the
+networks change.
+
+### app.py
+To see the neural network _in action_ (i.e. how it would be used in a real use case), run app.py. This script will apply
+the learned network by _recognizing objects in an image_ (classifying an image). To do this, run
+`./app.py [filename]`. The script takes all images as input, but only detects the objects it has learned (CIFAR-10
+classes). You can try the script with the images located in the `img` directory.
+
+It cannot be used as a standalone script, as it depends on `parameters.p` and [SciPy](https://www.scipy.org/).
+
 Architecture
 ---
 The neural network is a four layer network of the following structure:
