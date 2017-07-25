@@ -110,21 +110,52 @@ def test_neural_net():
 def test_keras_net():
     y_tr_cat = to_categorical(y_tr, 10)
     y_te_cat = to_categorical(y_te, 10)
+    # model = Sequential()
+    # model.add(Dense(units=hidden_sizes[0], input_shape=x_tr[0].shape, activation='relu'))
+    # #model.add(Dropout(p))
+    # for size in hidden_sizes[1:]:
+    #     model.add(Dense(units=size, activation='relu'))
+    #     #model.add(Dropout(p))
+    # model.add(Dense(out_size, kernel_regularizer=l2(lambda_)))
+    #
+    # adam = Adam(lr=learning_rate, beta_1=beta1, beta_2=beta2, epsilon=eps, decay=.0)
+    # model.compile(loss='categorical_crossentropy',
+    #               optimizer=adam,
+    #               metrics=['accuracy'])
+
+    from keras.layers import Conv2D, MaxPooling2D, Flatten
+    from keras.optimizers import rmsprop
+
 
     model = Sequential()
-    model.add(Dense(units=hidden_sizes[0], input_shape=x_tr[0].shape, activation='relu'))
-    #model.add(Dropout(p))
-    for size in hidden_sizes[1:]:
-        model.add(Dense(units=size, activation='relu'))
-        #model.add(Dropout(p))
-    model.add(Dense(out_size, kernel_regularizer=l2(lambda_)))
+    model.add(Conv2D(32, (3, 3), padding='same', input_shape=x_tr[0].shape))
+    model.add(Activation('relu'))
+    model.add(Conv2D(32, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
 
-    adam = Adam(lr=learning_rate, beta_1=beta1, beta_2=beta2, epsilon=eps, decay=.0)
-    model.compile(loss='categorical_crossentropy',
-                  optimizer=adam,
-                  metrics=['accuracy'])
+    model.add(Conv2D(64, (3, 3), padding='same'))
+    model.add(Activation('relu'))
+    model.add(Conv2D(64, (3, 3)))
+    model.add(Activation('relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25))
 
-    history = model.fit(x_tr, y_tr_cat, epochs=30, batch_size=256)
+    model.add(Flatten())
+    model.add(Dense(512))
+    model.add(Activation('relu'))
+    model.add(Dropout(0.5))
+    model.add(Dense(10))
+    model.add(Activation('softmax'))
+
+    # initiate RMSprop optimizer
+    opt = rmsprop(lr=0.0001, decay=1e-6)
+
+    # Let's train the model using RMSprop
+    model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
+
+    history = model.fit(x_tr, y_tr_cat, epochs=10, batch_size=256)
 
     loss_and_metrics = model.evaluate(x_te, y_te_cat, batch_size=256)
     plt.plot(history.history['loss'])
@@ -152,6 +183,8 @@ p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
 # Input data: 50000 training observations, 10000 test observations (no validation set).
 x_tr, y_tr = get_training_data()
 x_te, y_te = get_test_data()
+x_tr = x_tr.reshape((len(x_tr), 32, 32, 3))
+x_te = x_te.reshape((len(x_te), 32, 32, 3))
 
 # x_tr, x_val, x_te = split_data(x_data, .8, .1, .1)
 # y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
@@ -166,5 +199,5 @@ x_tr, _, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_te)
 hidden_sizes = [4000, 1000, 4000]
 out_size = np.unique(y_tr).shape[0]  # number of classes
 
-test_neural_net()
+# test_neural_net()
 test_keras_net()
