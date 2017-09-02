@@ -21,10 +21,6 @@ with open('dump_best4.p', 'rb') as file:
 
 images = []
 for name in filenames:
-    print()
-    print('--------------------------------------------')
-    print()
-    print(name)
     image = imread(name)
     image = imresize(image, (32, 32))
     image = image.flatten()
@@ -33,14 +29,19 @@ for name in filenames:
     image /= pre_std
     images.append(image)
 
-with open('dump_best5.p', 'rb') as file:
+with open('dump.p', 'rb') as file:
     wh, wo, bh, bo = load(file)
     class_scores = predict(np.array(images), wh, bh, wo, bo)
     classes = np.argmax(class_scores, axis=1)
     for i in range(len(classes)):
         print(filenames[i], class_labels[classes[i]], class_scores[i, classes[i]])
-    # label_scores = {}
-    # for nr in range(len(class_scores[0])):
-    #     label_scores[class_labels[nr]] = class_scores[0][nr]
-    # for k in sorted(label_scores, key=label_scores.get, reverse=True):
-    #     print(k, label_scores[k])
+    for i in range(len(class_scores)):
+        label_scores = {}
+        print()
+        print('--------------------------------------------')
+        print()
+        print(filenames[i])
+        for nr in range(len(class_scores[i])):
+            label_scores[class_labels[nr]] = class_scores[i][nr]
+        for k in sorted(label_scores, key=label_scores.get, reverse=True):
+            print(k, label_scores[k])

@@ -94,8 +94,8 @@ def test_neural_net():
     wh, bh, w_out, b_out = initialize_parameters(x_tr[0].shape[0], hidden_sizes, out_size)
 
     # Train the network
-    train(x_tr, y_tr, epochs, hidden_sizes, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1, beta2, eps, lambda_,
-          batch_size)
+    wh, bh, w_out, b_out = train(x_tr, y_tr, epochs, hidden_sizes, wh, bh, w_out, b_out, learning_rate, p, alpha, beta1,
+                                 beta2, eps, lambda_, batch_size)
 
     # Save parameters for reuse
     with open('dump.p', 'wb') as dump_file:
@@ -107,9 +107,10 @@ def test_neural_net():
         print('Test accuracy of network 1:', accuracy(x_te, y_te, wh, wo, bh, bo, alpha))
 
 
-def test_keras_net():
+def test_keras_net(x_tr, x_te, y_tr, y_te):
     y_tr_cat = to_categorical(y_tr, 10)
     y_te_cat = to_categorical(y_te, 10)
+
     # model = Sequential()
     # model.add(Dense(units=hidden_sizes[0], input_shape=x_tr[0].shape, activation='relu'))
     # #model.add(Dropout(p))
@@ -126,6 +127,8 @@ def test_keras_net():
     from keras.layers import Conv2D, MaxPooling2D, Flatten
     from keras.optimizers import rmsprop
 
+    x_tr = x_tr.reshape((len(x_tr), 32, 32, 3))
+    x_te = x_te.reshape((len(x_te), 32, 32, 3))
 
     model = Sequential()
     model.add(Conv2D(32, (3, 3), padding='same', input_shape=x_tr[0].shape))
@@ -150,12 +153,12 @@ def test_keras_net():
     model.add(Activation('softmax'))
 
     # initiate RMSprop optimizer
-    opt = rmsprop(lr=0.0001, decay=1e-6)
+    opt = rmsprop(lr=0.001, decay=1e-6)
 
     # Let's train the model using RMSprop
     model.compile(loss='categorical_crossentropy', optimizer=opt, metrics=['accuracy'])
 
-    history = model.fit(x_tr, y_tr_cat, epochs=10, batch_size=256)
+    history = model.fit(x_tr, y_tr_cat, epochs=50, batch_size=256)
 
     loss_and_metrics = model.evaluate(x_te, y_te_cat, batch_size=256)
     plt.plot(history.history['loss'])
@@ -175,19 +178,14 @@ beta2 = .999  # Hyperparameter for Adam parameter update.
 delta = 1  # The minimum margin of the hinge loss.
 eps = 1e-8  # Hyperparameter for Adam parameter update.
 lambda_ = 0  # The regularization strength (has an influence on regularization loss).
-batch_size = 512  # The size of batches (used to speed up training).
-epochs = 200  # The amount of 'iterations' the network should take
-learning_rate = .00005  # The step size for each epoch (influences how greedy the network changes its parameters).
-p = .75  # Dropout rate as the possibility of each neuron to be dropped out.
+batch_size = 1024  # The size of batches (used to speed up training).
+epochs = 100  # The amount of 'iterations' the network should take
+learning_rate = .0001  # The step size for each epoch (influences how greedy the network changes its parameters).
+p = 1  # Dropout rate as the inverse probability of each neuron to be dropped out.
 
 # Input data: 50000 training observations, 10000 test observations (no validation set).
 x_tr, y_tr = get_training_data()
 x_te, y_te = get_test_data()
-x_tr = x_tr.reshape((len(x_tr), 32, 32, 3))
-x_te = x_te.reshape((len(x_te), 32, 32, 3))
-
-# x_tr, x_val, x_te = split_data(x_data, .8, .1, .1)
-# y_tr, y_val, y_te = split_data(y_data, .8, .1, .1)
 
 # Preprocess data
 x_tr, _, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_te)
@@ -195,9 +193,9 @@ x_tr, _, x_te, pre_mean, pre_std = preprocess_data(x_tr, x_te)
 # with open('dump.p', 'wb') as file:
 #     dump((wh, wo, bh, bo, pre_mean, pre_std), file)
 
-# Neural net: IN (3072 x 1) -> HL (1000 x 1) -> HL (250 x 1) -> HL (100 x 1) -> OUT (10 x 1)
+# Neural net: IN (3072 x 1) -> HL (4000 x 1) -> HL (1000 x 1) -> HL (4000 x 1) -> OUT (10 x 1)
 hidden_sizes = [4000, 1000, 4000]
 out_size = np.unique(y_tr).shape[0]  # number of classes
 
-# test_neural_net()
-test_keras_net()
+test_neural_net()
+test_keras_net(x_tr, x_te, y_tr, y_te)

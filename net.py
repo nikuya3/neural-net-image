@@ -1,5 +1,4 @@
 import numpy as np
-from pickle import dump, load
 from math import sqrt
 
 
@@ -34,7 +33,7 @@ def split_data(data, train, val, test):
 def initialize_parameters(input_size, hidden_sizes, output_size):
     """
     Initializes the learnable parameters for a neural network (basically the connection weights and biases).
-    The parameters are designed to work well with ReLU.
+    The parameters are designed to work well with ReLU (c https://arxiv.org/abs/1502.01852).
     :param input_size: The size of the input layer.
     :param hidden_sizes: The hidden layer sizes as array.
     :param output_size: The size of the output layer.
@@ -46,14 +45,14 @@ def initialize_parameters(input_size, hidden_sizes, output_size):
         if i == 0:
             wh.append(np.random.randn(input_size, hidden_sizes[i]) * sqrt(2 / input_size))
         else:
-            wh.append(np.random.randn(hidden_sizes[i - 1], hidden_sizes[i]) * sqrt(2 / input_size))
+            wh.append(np.random.randn(hidden_sizes[i - 1], hidden_sizes[i]) * sqrt(2 / hidden_sizes[i - 1]))
         bh.append(np.zeros((1, hidden_sizes[i])))
-    w_out = np.random.randn(hidden_sizes[-1], output_size) * sqrt(2 / input_size)
+    w_out = np.random.randn(hidden_sizes[-1], output_size) * sqrt(2 / hidden_sizes[-1])
     b_out = np.zeros((1, output_size))
     return wh, bh, w_out, b_out
 
 
-def get_batches(x, y, batch_size):
+def get_batch(x, y, batch_size):
     """
     Gets a random subset of arrays x and y.
     :param x: An array to use.
@@ -69,6 +68,27 @@ def get_batches(x, y, batch_size):
         batch_x = x
         batch_y = y
     return batch_x, batch_y
+
+
+def get_batches(x, y, batch_size):
+    """
+    Gets a random subset of arrays x and y.
+    :param x: An array to use.
+    :param y: Another array to use.
+    :param batch_size: The size of the subset.
+    :return: A random subset of arrays x and y.
+    """
+    if batch_size > 0:
+        random_indices = np.random.randint(x.shape[0], size=x.shape[0])
+        batches_x = [x[random_indices[:batch_size], :]]
+        batches_y = [[y[i] for i in random_indices[:batch_size]]]
+        for nr in range(1, int(len(x) / batch_size)):
+            batches_x.append(x[random_indices[batch_size * (nr - 1):batch_size * nr]])
+            batches_y.append([y[i] for i in random_indices[batch_size * (nr - 1):batch_size * nr]])
+    else:
+        batches_x = [x]
+        batches_y = [y]
+    return batches_x, batches_y
 
 
 def calculate_activation(x, alpha):
@@ -375,32 +395,35 @@ def train(x, y, epochs, hidden_sizes, wh, bh, w_out, b_out, learning_rate, p, al
     losses = []
     accuracies = []
     for epoch in range(1, epochs + 1):
-        batch_x, batch_y = get_batches(x, y, batch_size)
+        print(epoch)
+        batches_x, batches_y = get_batches(x, y, batch_size)
+        for batch_nr in range(len(batches_x)):
+            batch_x = batches_x[batch_nr]
+            batch_y = batches_y[batch_nr]
+            # Feed-forward the network
+            hidden_layers, outs, w_out = forward_pass(batch_x, hidden_sizes, wh, bh, w_out, b_out, alpha, p)
 
-        # Feed-forward the network
-        hidden_layers, outs, w_out = forward_pass(batch_x, hidden_sizes, wh, bh, w_out, b_out, alpha, p)
+            # Calculate loss and accuracy measures
+            loss = calculate_cross_entropy_loss(outs, batch_y, w_out, lambda_)
+            losses.append(loss)
+            accuracy = calculate_accuracy(outs, batch_y)
+            accuracies.append(accuracy)
+            print(batch_nr, loss, accuracy)
 
-        # Calculate loss and accuracy measures
-        loss = calculate_cross_entropy_loss(outs, batch_y, w_out, lambda_)
-        losses.append(loss)
-        accuracy = calculate_accuracy(outs, batch_y)
-        accuracies.append(accuracy)
-        print(epoch, loss, accuracy)
+            # Backpropagation
+            dwh, dbh, dw_out, db_out = backpropagation(batch_x, outs, batch_y, hidden_layers, wh, bh, w_out, b_out, alpha,
+                                                       lambda_)
 
-        # Backpropagation
-        dwh, dbh, dw_out, db_out = backpropagation(batch_x, outs, batch_y, hidden_layers, wh, bh, w_out, b_out, alpha,
-                                                   lambda_)
-
-        # Update parameters using gradients of backpropagation
-        for h in range(len(hidden_layers)):
-            wh[h], m_wh[h], v_wh[h] =\
-                update_parameter(wh[h], dwh[h], epoch, learning_rate, m_wh[h], v_wh[h], beta1, beta2, eps)
-            bh[h], m_bh[h], v_bh[h] =\
-                update_parameter(bh[h], dbh[h], epoch, learning_rate, m_bh[h], v_bh[h], beta1, beta2, eps)
-        w_out, m_w_out, v_w_out =\
-            update_parameter(w_out, dw_out, epoch, learning_rate, m_w_out, v_w_out, beta1, beta2, eps)
-        b_out, m_b_out, v_b_out =\
-            update_parameter(b_out, db_out, epoch, learning_rate, m_b_out, v_b_out, beta1, beta2, eps)
+            # Update parameters using gradients of backpropagation
+            for h in range(len(hidden_layers)):
+                wh[h], m_wh[h], v_wh[h] =\
+                    update_parameter(wh[h], dwh[h], epoch, learning_rate, m_wh[h], v_wh[h], beta1, beta2, eps)
+                bh[h], m_bh[h], v_bh[h] =\
+                    update_parameter(bh[h], dbh[h], epoch, learning_rate, m_bh[h], v_bh[h], beta1, beta2, eps)
+            w_out, m_w_out, v_w_out =\
+                update_parameter(w_out, dw_out, epoch, learning_rate, m_w_out, v_w_out, beta1, beta2, eps)
+            b_out, m_b_out, v_b_out =\
+                update_parameter(b_out, db_out, epoch, learning_rate, m_b_out, v_b_out, beta1, beta2, eps)
     write_list(losses, 'losses.txt')
     write_list(accuracies, 'accuracies.txt')
     return wh, bh, w_out, b_out
