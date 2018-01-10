@@ -179,8 +179,8 @@ delta = 1  # The minimum margin of the hinge loss.
 eps = 1e-8  # Hyperparameter for Adam parameter update.
 lambda_ = 0  # The regularization strength (has an influence on regularization loss).
 batch_size = 1024  # The size of batches (used to speed up training).
-epochs = 100  # The amount of 'iterations' the network should take
-learning_rate = .0001  # The step size for each epoch (influences how greedy the network changes its parameters).
+epochs = 30  # The amount of 'iterations' the network should take
+learning_rate = .00001  # The step size for each epoch (influences how greedy the network changes its parameters).
 p = 1  # Dropout rate as the inverse probability of each neuron to be dropped out.
 
 # Input data: 50000 training observations, 10000 test observations (no validation set).
